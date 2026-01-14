@@ -1,3 +1,5 @@
+#include "hip/hip_runtime.h"
+#include "hip/hip_runtime.h"
 /*
  * Copyright (c) 2023, NVIDIA CORPORATION.
  *
@@ -98,7 +100,7 @@ __global__ void find_or_insert_ptr_kernel_lock_key(
       cmp_result &= 0x01010101;
       do {
         if (cmp_result == 0) break;
-        // CUDA uses little endian,
+        // ROCM uses little endian,
         // and the lowest byte in register stores in the lowest address.
         uint32_t index = (__ffs(cmp_result) - 1) >> 3;
         cmp_result &= (cmp_result - 1);
@@ -108,7 +110,7 @@ __global__ void find_or_insert_ptr_kernel_lock_key(
         // Modifications to the bucket will not before this instruction.
         result = current_key->compare_exchange_strong(
             expected_key, static_cast<K>(LOCKED_KEY),
-            cuda::std::memory_order_acquire, cuda::std::memory_order_relaxed);
+            hip::std::memory_order_acquire, hip::std::memory_order_relaxed);
       } while (!result);
       if (result) {
         occupy_result = OccupyResult::DUPLICATE;
@@ -133,7 +135,7 @@ __global__ void find_or_insert_ptr_kernel_lock_key(
         K expected_key = static_cast<K>(EMPTY_KEY);
         result = current_key->compare_exchange_strong(
             expected_key, static_cast<K>(LOCKED_KEY),
-            cuda::std::memory_order_acquire, cuda::std::memory_order_relaxed);
+            hip::std::memory_order_acquire, hip::std::memory_order_relaxed);
       } while (!result);
       if (result) {
         occupy_result = OccupyResult::OCCUPIED_EMPTY;
@@ -181,7 +183,7 @@ __global__ void find_or_insert_ptr_kernel_lock_key(
           if (temp_score < min_score) {
             auto verify_key_ptr = BUCKET::keys(bucket_keys_ptr, i + k + j);
             auto verify_key =
-                verify_key_ptr->load(cuda::std::memory_order_relaxed);
+                verify_key_ptr->load(hip::std::memory_order_relaxed);
             if (verify_key != static_cast<K>(LOCKED_KEY) &&
                 verify_key != static_cast<K>(EMPTY_KEY)) {
               min_score = temp_score;
@@ -198,19 +200,19 @@ __global__ void find_or_insert_ptr_kernel_lock_key(
       break;
     }
     auto min_score_key = BUCKET::keys(bucket_keys_ptr, min_pos);
-    auto expected_key = min_score_key->load(cuda::std::memory_order_relaxed);
+    auto expected_key = min_score_key->load(hip::std::memory_order_relaxed);
     if (expected_key != static_cast<K>(LOCKED_KEY) &&
         expected_key != static_cast<K>(EMPTY_KEY)) {
       bool result = min_score_key->compare_exchange_strong(
           expected_key, static_cast<K>(LOCKED_KEY),
-          cuda::std::memory_order_acquire, cuda::std::memory_order_relaxed);
+          hip::std::memory_order_acquire, hip::std::memory_order_relaxed);
       if (result) {
         S* min_score_ptr =
             BUCKET::scores(bucket_keys_ptr, bucket_capacity, min_pos);
         auto verify_score_ptr =
             reinterpret_cast<AtomicScore<S>*>(min_score_ptr);
         auto verify_score =
-            verify_score_ptr->load(cuda::std::memory_order_relaxed);
+            verify_score_ptr->load(hip::std::memory_order_relaxed);
         if (verify_score <= min_score) {
           key_pos = min_pos;
           ScoreFunctor::update_with_digest(bucket_keys_ptr, key_pos, scores,
@@ -224,7 +226,7 @@ __global__ void find_or_insert_ptr_kernel_lock_key(
             occupy_result = OccupyResult::EVICT;
           }
         } else {
-          min_score_key->store(expected_key, cuda::std::memory_order_release);
+          min_score_key->store(expected_key, hip::std::memory_order_release);
         }
       }
     }
@@ -340,7 +342,7 @@ struct SelectFindOrInsertPtrKernel {
   static void execute_kernel(const float& load_factor, const int& block_size,
                              const size_t bucket_max_size,
                              const size_t buckets_num, const size_t dim,
-                             cudaStream_t& stream, const size_t& n,
+                             hipStream_t& stream, const size_t& n,
                              const Table<K, V, S>* __restrict table,
                              Bucket<K, V, S>* buckets, const K* __restrict keys,
                              V** __restrict values, S* __restrict scores,

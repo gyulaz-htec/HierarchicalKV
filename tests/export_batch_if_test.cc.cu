@@ -1,4 +1,5 @@
-#include <cooperative_groups.h>
+#include "hip/hip_runtime.h"
+#include <hip/hip_cooperative_groups.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -136,8 +137,8 @@ void test_export_batch_if_with_limited_size() {
   i64 pattern = 0;
   u64 threshold = 40;
 
-  cudaStream_t stream;
-  CUDA_CHECK(cudaStreamCreate(&stream));
+  hipStream_t stream;
+  ROCM_CHECK(hipStreamCreate(&stream));
 
   TableOptions options;
   options.init_capacity = CAP;
@@ -149,8 +150,8 @@ void test_export_batch_if_with_limited_size() {
   table->init(options);
 
   size_t* d_cnt = nullptr;
-  CUDA_CHECK(cudaMallocAsync(&d_cnt, sizeof(size_t), stream));
-  CUDA_CHECK(cudaMemsetAsync(d_cnt, 0, sizeof(size_t), stream));
+  ROCM_CHECK(hipMallocAsync(&d_cnt, sizeof(size_t), stream));
+  ROCM_CHECK(hipMemsetAsync(d_cnt, 0, sizeof(size_t), stream));
 
   test_util::KVMSBuffer<i64, f32, u64> buffer0;
   buffer0.Reserve(n0, dim, stream);
@@ -167,7 +168,7 @@ void test_export_batch_if_with_limited_size() {
                             buffer0_ev.values_ptr(), buffer0_ev.scores_ptr(),
                             d_cnt, stream, true, false);
     table_size = table->size(stream);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
     MERLIN_EXPECT_TRUE(table_size == n0, "Invalid table size.");
   }
 
@@ -186,7 +187,7 @@ void test_export_batch_if_with_limited_size() {
                             buffer1_ev.values_ptr(), buffer1_ev.scores_ptr(),
                             d_cnt, stream, true, false);
     table_size = table->size(stream);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
   }
 
   test_util::KVMSBuffer<i64, f32, u64> buffer2;
@@ -204,7 +205,7 @@ void test_export_batch_if_with_limited_size() {
                             buffer2_ev.values_ptr(), buffer2_ev.scores_ptr(),
                             d_cnt, stream, true, false);
     table_size = table->size(stream);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
     printf("final size: %zu, capacity: %zu\n", table_size, table->capacity());
   }
 
@@ -212,25 +213,25 @@ void test_export_batch_if_with_limited_size() {
   size_t h_cnt2 = 0;
 
   table->size_if<ExportIfPredFunctor>(pattern, threshold, d_cnt, stream);
-  CUDA_CHECK(cudaMemcpyAsync(&h_cnt, d_cnt, sizeof(size_t),
-                             cudaMemcpyDeviceToHost, stream));
-  CUDA_CHECK(cudaStreamSynchronize(stream));
+  ROCM_CHECK(hipMemcpyAsync(&h_cnt, d_cnt, sizeof(size_t),
+                             hipMemcpyDeviceToHost, stream));
+  ROCM_CHECK(hipStreamSynchronize(stream));
   printf("---> check h_cnt from size_if kernel: %zu\n", h_cnt);
 
   test_util::KVMSBuffer<i64, f32, u64> buffer_out;
   buffer_out.Reserve(h_cnt, dim, stream);
   buffer_out.ToZeros(stream);
 
-  CUDA_CHECK(cudaMemsetAsync(d_cnt, 0, sizeof(size_t), stream));
-  CUDA_CHECK(cudaStreamSynchronize(stream));
+  ROCM_CHECK(hipMemsetAsync(d_cnt, 0, sizeof(size_t), stream));
+  ROCM_CHECK(hipStreamSynchronize(stream));
 
   bool use_pin = false;
 
   uint64_t t0 = test_util::getTimestamp();
-  cudaEvent_t start, stop;
-  cudaEventCreate(&start);
-  cudaEventCreate(&stop);
-  cudaEventRecord(start);
+  hipEvent_t start, stop;
+  hipEventCreate(&start);
+  hipEventCreate(&stop);
+  hipEventRecord(start);
   if (EV == ExportIfVersion::V1) {
     table->export_batch_if<ExportIfPredFunctor>(
         pattern, threshold, static_cast<size_t>(CAP), 0, d_cnt,
@@ -259,17 +260,17 @@ void test_export_batch_if_with_limited_size() {
     table->for_each<ForEachExecutionFuncV4<i64, f32, u64>>(
         0, static_cast<size_t>(CAP), f, stream);
   }
-  cudaEventRecord(stop);
-  CUDA_CHECK(cudaMemcpyAsync(&h_cnt2, d_cnt, sizeof(size_t),
-                             cudaMemcpyDeviceToHost, stream));
-  CUDA_CHECK(cudaStreamSynchronize(stream));
+  hipEventRecord(stop);
+  ROCM_CHECK(hipMemcpyAsync(&h_cnt2, d_cnt, sizeof(size_t),
+                             hipMemcpyDeviceToHost, stream));
+  ROCM_CHECK(hipStreamSynchronize(stream));
   printf("final h_cnt2: %zu\n", h_cnt2);
 
   MERLIN_EXPECT_TRUE(
       h_cnt == h_cnt2,
       "size_if and export_batch_if get different matching count.");
   float cu_cost = 0;
-  cudaEventElapsedTime(&cu_cost, start, stop);
+  hipEventElapsedTime(&cu_cost, start, stop);
   uint64_t t1 = test_util::getTimestamp();
   printf("final h_cnt2: %zu, cost: %zu, cu_cost: %f\n", h_cnt2, t1 - t0,
          cu_cost);
@@ -277,7 +278,7 @@ void test_export_batch_if_with_limited_size() {
   if (!use_pin) {
     buffer_out.SyncData(false, stream);
   }
-  CUDA_CHECK(cudaStreamSynchronize(stream));
+  ROCM_CHECK(hipStreamSynchronize(stream));
   uint64_t t2 = test_util::getTimestamp();
   printf("use_pin: %d. After sycn data of len: %zu, total cost: %zu\n", use_pin,
          h_cnt2, t2 - t0);

@@ -1,3 +1,5 @@
+#include "hip/hip_runtime.h"
+#include "hip/hip_runtime.h"
 /*
  * Copyright (c) 2023, NVIDIA CORPORATION.
  *
@@ -15,8 +17,8 @@
  */
 
 #pragma once
-#include <cuda/atomic>
-#include <cuda/std/semaphore>
+#include <hip/atomic>
+// #include <rocm/std/semaphore>
 
 namespace nv {
 namespace merlin {
@@ -24,113 +26,113 @@ namespace group_lock {
 
 template <typename T>
 __global__ void init_kernel(
-    cuda::atomic<T, cuda::thread_scope_device>* update_count,
-    cuda::atomic<T, cuda::thread_scope_device>* read_count,
-    cuda::atomic<bool, cuda::thread_scope_device>* unique_flag) {
+    hip::atomic<T, hip::thread_scope_device>* update_count,
+    hip::atomic<T, hip::thread_scope_device>* read_count,
+    hip::atomic<bool, hip::thread_scope_device>* unique_flag) {
   if (blockIdx.x == 0 && threadIdx.x == 0) {
-    new (update_count) cuda::atomic<T, cuda::thread_scope_device>{0};
-    new (read_count) cuda::atomic<T, cuda::thread_scope_device>{0};
-    new (unique_flag) cuda::atomic<bool, cuda::thread_scope_device>{false};
+    new (update_count) hip::atomic<T, hip::thread_scope_device>{0};
+    new (read_count) hip::atomic<T, hip::thread_scope_device>{0};
+    new (unique_flag) hip::atomic<bool, hip::thread_scope_device>{false};
   }
 }
 
 template <typename T>
 __global__ void lock_read_kernel(
-    cuda::atomic<T, cuda::thread_scope_device>* update_count,
-    cuda::atomic<T, cuda::thread_scope_device>* read_count) {
+    hip::atomic<T, hip::thread_scope_device>* update_count,
+    hip::atomic<T, hip::thread_scope_device>* read_count) {
   for (;;) {
-    while (update_count->load(cuda::std::memory_order_relaxed)) {
+    while (update_count->load(hip::std::memory_order_relaxed)) {
     }
-    read_count->fetch_add(1, cuda::std::memory_order_relaxed);
-    if (update_count->load(cuda::std::memory_order_relaxed) == 0) {
+    read_count->fetch_add(1, hip::std::memory_order_relaxed);
+    if (update_count->load(hip::std::memory_order_relaxed) == 0) {
       break;
     }
-    read_count->fetch_sub(1, cuda::std::memory_order_relaxed);
+    read_count->fetch_sub(1, hip::std::memory_order_relaxed);
   }
 }
 
 template <typename T>
 __global__ void unlock_read_kernel(
-    cuda::atomic<T, cuda::thread_scope_device>* read_count) {
-  read_count->fetch_sub(1, cuda::std::memory_order_relaxed);
+    hip::atomic<T, hip::thread_scope_device>* read_count) {
+  read_count->fetch_sub(1, hip::std::memory_order_relaxed);
 }
 
 template <typename T>
 __global__ void lock_update_kernel(
-    cuda::atomic<T, cuda::thread_scope_device>* update_count,
-    cuda::atomic<T, cuda::thread_scope_device>* read_count) {
+    hip::atomic<T, hip::thread_scope_device>* update_count,
+    hip::atomic<T, hip::thread_scope_device>* read_count) {
   for (;;) {
-    while (read_count->load(cuda::std::memory_order_relaxed)) {
+    while (read_count->load(hip::std::memory_order_relaxed)) {
     }
-    update_count->fetch_add(1, cuda::std::memory_order_relaxed);
-    if (read_count->load(cuda::std::memory_order_relaxed) == 0) {
+    update_count->fetch_add(1, hip::std::memory_order_relaxed);
+    if (read_count->load(hip::std::memory_order_relaxed) == 0) {
       break;
     }
-    update_count->fetch_sub(1, cuda::std::memory_order_relaxed);
+    update_count->fetch_sub(1, hip::std::memory_order_relaxed);
   }
 }
 
 template <typename T>
 __global__ void unlock_update_kernel(
-    cuda::atomic<T, cuda::thread_scope_device>* update_count) {
-  update_count->fetch_sub(1, cuda::std::memory_order_relaxed);
+    hip::atomic<T, hip::thread_scope_device>* update_count) {
+  update_count->fetch_sub(1, hip::std::memory_order_relaxed);
 }
 
 template <typename T>
 __global__ void lock_update_read_kernel(
-    cuda::atomic<T, cuda::thread_scope_device>* update_count,
-    cuda::atomic<T, cuda::thread_scope_device>* read_count,
-    cuda::atomic<bool, cuda::thread_scope_device>* unique_flag) {
+    hip::atomic<T, hip::thread_scope_device>* update_count,
+    hip::atomic<T, hip::thread_scope_device>* read_count,
+    hip::atomic<bool, hip::thread_scope_device>* unique_flag) {
   /* Lock unique flag */
   bool expected = false;
   while (!unique_flag->compare_exchange_weak(expected, true,
-                                             cuda::std::memory_order_relaxed)) {
+                                             hip::std::memory_order_relaxed)) {
     expected = false;
   }
 
   /* Ban update */
   for (;;) {
-    while (update_count->load(cuda::std::memory_order_relaxed)) {
+    while (update_count->load(hip::std::memory_order_relaxed)) {
     }
-    read_count->fetch_add(1, cuda::std::memory_order_relaxed);
-    if (update_count->load(cuda::std::memory_order_relaxed) == 0) {
+    read_count->fetch_add(1, hip::std::memory_order_relaxed);
+    if (update_count->load(hip::std::memory_order_relaxed) == 0) {
       break;
     }
-    read_count->fetch_sub(1, cuda::std::memory_order_relaxed);
+    read_count->fetch_sub(1, hip::std::memory_order_relaxed);
   }
 
   /* Ban read */
   for (;;) {
-    while (read_count->load(cuda::std::memory_order_relaxed) > 1) {
+    while (read_count->load(hip::std::memory_order_relaxed) > 1) {
     }
-    update_count->fetch_add(1, cuda::std::memory_order_relaxed);
-    if (read_count->load(cuda::std::memory_order_relaxed) == 1) {
+    update_count->fetch_add(1, hip::std::memory_order_relaxed);
+    if (read_count->load(hip::std::memory_order_relaxed) == 1) {
       break;
     }
-    update_count->fetch_sub(1, cuda::std::memory_order_relaxed);
+    update_count->fetch_sub(1, hip::std::memory_order_relaxed);
   }
 }
 
 template <typename T>
 __global__ void unlock_update_read_kernel(
-    cuda::atomic<T, cuda::thread_scope_device>* update_count,
-    cuda::atomic<T, cuda::thread_scope_device>* read_count,
-    cuda::atomic<bool, cuda::thread_scope_device>* unique_flag) {
-  read_count->fetch_sub(1, cuda::std::memory_order_relaxed);
-  update_count->fetch_sub(1, cuda::std::memory_order_relaxed);
-  unique_flag->store(false, cuda::std::memory_order_relaxed);
+    hip::atomic<T, hip::thread_scope_device>* update_count,
+    hip::atomic<T, hip::thread_scope_device>* read_count,
+    hip::atomic<bool, hip::thread_scope_device>* unique_flag) {
+  read_count->fetch_sub(1, hip::std::memory_order_relaxed);
+  update_count->fetch_sub(1, hip::std::memory_order_relaxed);
+  unique_flag->store(false, hip::std::memory_order_relaxed);
 }
 
 template <typename T>
 __global__ void update_count_kernel(
-    T* counter, cuda::atomic<T, cuda::thread_scope_device>* update_count) {
-  *counter = update_count->load(cuda::std::memory_order_relaxed);
+    T* counter, hip::atomic<T, hip::thread_scope_device>* update_count) {
+  *counter = update_count->load(hip::std::memory_order_relaxed);
 }
 
 template <typename T>
 __global__ void read_count_kernel(
-    T* counter, cuda::atomic<T, cuda::thread_scope_device>* read_count) {
-  *counter = read_count->load(cuda::std::memory_order_relaxed);
+    T* counter, hip::atomic<T, hip::thread_scope_device>* read_count) {
+  *counter = read_count->load(hip::std::memory_order_relaxed);
 }
 
 }  // namespace group_lock

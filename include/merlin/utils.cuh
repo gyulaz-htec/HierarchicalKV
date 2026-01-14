@@ -1,11 +1,11 @@
 /*
- * Copyright (c) 2022, NVIDIA CORPORATION.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
+* Copyright (c) 2022, NVIDIA CORPORATION.
+*
+* Licensed under the Apache License, Version 2.0 (the "License");
+* you may not use this file except in compliance with the License.
+* You may obtain a copy of the License at
+*
+*     http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -13,28 +13,29 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
+ 
 #pragma once
 
-#include <cooperative_groups.h>
+#include "hip/hip_runtime.h"
+#include <hip/hip_cooperative_groups.h>
 #include <stdarg.h>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <exception>
 #include <string>
-#include "cuda_fp16.h"
+#include "hip/hip_fp16.h"
 #include "debug.hpp"
 
 using namespace cooperative_groups;
 namespace cg = cooperative_groups;
 
-__inline__ __device__ uint64_t atomicCAS(uint64_t* address, uint64_t compare,
-                                         uint64_t val) {
-  return (uint64_t)atomicCAS((unsigned long long*)address,
-                             (unsigned long long)compare,
-                             (unsigned long long)val);
-}
+// __inline__ __device__ uint64_t atomicCAS(uint64_t* address, uint64_t compare,
+//                                          uint64_t val) {
+//   return (uint64_t)atomicCAS((unsigned long long*)address,
+//                              (unsigned long long)compare,
+//                              (unsigned long long)val);
+// }
 
 __inline__ __device__ int64_t atomicCAS(int64_t* address, int64_t compare,
                                         int64_t val) {
@@ -43,10 +44,10 @@ __inline__ __device__ int64_t atomicCAS(int64_t* address, int64_t compare,
                             (unsigned long long)val);
 }
 
-__inline__ __device__ uint64_t atomicExch(uint64_t* address, uint64_t val) {
-  return (uint64_t)atomicExch((unsigned long long*)address,
-                              (unsigned long long)val);
-}
+// __inline__ __device__ uint64_t atomicExch(uint64_t* address, uint64_t val) {
+//   return (uint64_t)atomicExch((unsigned long long*)address,
+//                               (unsigned long long)val);
+// }
 
 __inline__ __device__ int64_t atomicExch(int64_t* address, int64_t val) {
   return (int64_t)atomicExch((unsigned long long*)address,
@@ -64,10 +65,10 @@ __inline__ __device__ int64_t atomicAdd(int64_t* address, const int64_t val) {
   return (int64_t)atomicAdd((unsigned long long*)address, val);
 }
 
-__inline__ __device__ uint64_t atomicAdd(uint64_t* address,
-                                         const uint64_t val) {
-  return (uint64_t)atomicAdd((unsigned long long*)address, val);
-}
+// __inline__ __device__ uint64_t atomicAdd(uint64_t* address,
+//                                          const uint64_t val) {
+//   return (uint64_t)atomicAdd((unsigned long long*)address, val);
+// }
 
 namespace nv {
 namespace merlin {
@@ -75,32 +76,39 @@ namespace merlin {
 template <class S>
 static __forceinline__ __device__ S device_nano() {
   S mclk;
+#ifdef __HIP_PLATFORM_AMD__
+  // AMD GCN assembly for reading realtime clock
+  uint64_t time;
+  asm volatile("s_memrealtime %0" : "=s"(time));
+  mclk = static_cast<S>(time);
+#else
   asm volatile("mov.u64 %0,%%globaltimer;" : "=l"(mclk));
+#endif
   return mclk;
 }
 
-inline void __cudaCheckError(const char* file, const int line) {
-#ifdef CUDA_ERROR_CHECK
-  cudaError err = cudaGetLastError();
-  if (cudaSuccess != err) {
-    fprintf(stderr, "cudaCheckError() failed at %s:%i : %s\n", file, line,
-            cudaGetErrorString(err));
+inline void __rocmCheckError(const char* file, const int line) {
+#ifdef ROCM_ERROR_CHECK
+  hipError_t err = hipGetLastError();
+  if (hipSuccess != err) {
+    fprintf(stderr, "rocmCheckError() failed at %s:%i : %s\n", file, line,
+            hipGetErrorString(err));
     exit(-1);
   }
 
   // More careful checking. However, this will affect performance.
   // Comment away if needed.
-  err = cudaDeviceSynchronize();
-  if (cudaSuccess != err) {
-    fprintf(stderr, "cudaCheckError() with sync failed at %s:%i : %s\n", file,
-            line, cudaGetErrorString(err));
+  err = hipDeviceSynchronize();
+  if (hipSuccess != err) {
+    fprintf(stderr, "rocmCheckError() with sync failed at %s:%i : %s\n", file,
+            line, hipGetErrorString(err));
     exit(-1);
   }
 #endif
 
   return;
 }
-#define CudaCheckError() nv::merlin::__cudaCheckError(__FILE__, __LINE__)
+#define CudaCheckError() nv::merlin::__rocmCheckError(__FILE__, __LINE__)
 
 static inline size_t SAFE_GET_GRID_SIZE(size_t N, int block_size) {
   return ((N) > std::numeric_limits<int>::max())
@@ -109,12 +117,12 @@ static inline size_t SAFE_GET_GRID_SIZE(size_t N, int block_size) {
 }
 
 static inline int SAFE_GET_BLOCK_SIZE(int block_size, int device = -1) {
-  cudaDeviceProp prop;
+  hipDeviceProp_t prop;
   int current_device = device;
   if (current_device == -1) {
-    CUDA_CHECK(cudaGetDevice(&current_device));
+    ROCM_CHECK(hipGetDevice(&current_device));
   }
-  CUDA_CHECK(cudaGetDeviceProperties(&prop, current_device));
+  ROCM_CHECK(hipGetDeviceProperties(&prop, current_device));
   if (block_size > prop.maxThreadsPerBlock) {
     fprintf(stdout,
             "The requested block_size=%d exceeds the device limit, "
@@ -178,22 +186,23 @@ __inline__ __device__ int32_t Murmur3HashDevice(int32_t const& key) {
 
 class CudaDeviceRestorer {
  public:
-  CudaDeviceRestorer() { CUDA_CHECK(cudaGetDevice(&dev_)); }
-  ~CudaDeviceRestorer() { CUDA_CHECK(cudaSetDevice(dev_)); }
+  CudaDeviceRestorer() { ROCM_CHECK(hipGetDevice(&dev_)); }
+  ~CudaDeviceRestorer() { ROCM_CHECK(hipSetDevice(dev_)); }
 
  private:
   int dev_;
 };
 
 static inline int get_dev(const void* ptr) {
-  cudaPointerAttributes attr;
-  CUDA_CHECK(cudaPointerGetAttributes(&attr, ptr));
+  hipPointerAttribute_t attr;
+  ROCM_CHECK(hipPointerGetAttributes(&attr, ptr));
   int dev = -1;
-
-#if CUDART_VERSION >= 10000
-  if (attr.type == cudaMemoryTypeDevice)
+#if defined(HIP_VERSION) && HIP_VERSION >= 50000000
+  if (attr.type == hipMemoryTypeDevice)
+#elif ROCMRT_VERSION >= 10000
+  if (attr.type == hipMemoryTypeDevice)
 #else
-  if (attr.memoryType == cudaMemoryTypeDevice)
+  if (attr.memoryType == hipMemoryTypeDevice)
 #endif
   {
     dev = attr.device;
@@ -204,18 +213,19 @@ static inline int get_dev(const void* ptr) {
 static inline void switch_to_dev(const void* ptr) {
   int dev = get_dev(ptr);
   if (dev >= 0) {
-    CUDA_CHECK(cudaSetDevice(dev));
+    ROCM_CHECK(hipSetDevice(dev));
   }
 }
 
 static inline bool is_on_device(const void* ptr) {
-  cudaPointerAttributes attr;
-  CUDA_CHECK(cudaPointerGetAttributes(&attr, ptr));
-
-#if CUDART_VERSION >= 10000
-  return (attr.type == cudaMemoryTypeDevice);
+  hipPointerAttribute_t attr;
+  ROCM_CHECK(hipPointerGetAttributes(&attr, ptr));
+#if defined(HIP_VERSION) && HIP_VERSION >= 50000000
+   return (attr.type == hipMemoryTypeDevice);
+#elif ROCMRT_VERSION >= 10000
+  return (attr.type == hipMemoryTypeDevice);
 #else
-  return (attr.memoryType == cudaMemoryTypeDevice);
+  return (attr.memoryType == hipMemoryTypeDevice);
 #endif
 }
 
@@ -287,21 +297,21 @@ __forceinline__ __device__ void unlock(
   }
 }
 
-inline void free_pointers(cudaStream_t stream, int n, ...) {
+inline void free_pointers(hipStream_t stream, int n, ...) {
   va_list args;
   va_start(args, n);
   void* ptr = nullptr;
   for (int i = 0; i < n; i++) {
     ptr = va_arg(args, void*);
     if (ptr) {
-      cudaPointerAttributes attr;
-      memset(&attr, 0, sizeof(cudaPointerAttributes));
+      hipPointerAttribute_t attr;
+      memset(&attr, 0, sizeof(hipPointerAttribute_t));
       try {
-        CUDA_CHECK(cudaPointerGetAttributes(&attr, ptr));
+        ROCM_CHECK(hipPointerGetAttributes(&attr, ptr));
         if (attr.devicePointer && (!attr.hostPointer)) {
-          CUDA_CHECK(cudaFreeAsync(ptr, stream));
+          ROCM_CHECK(hipFreeAsync(ptr, stream));
         } else if (attr.devicePointer && attr.hostPointer) {
-          CUDA_CHECK(cudaFreeHost(ptr));
+          ROCM_CHECK(hipHostFree(ptr));
         } else {
           free(ptr);
         }
@@ -322,16 +332,16 @@ static __global__ void memset64bitKernel(void* devPtr, uint64_t value,
   }
 }
 
-__forceinline__ __host__ cudaError_t memset64Async(void* devPtr, uint64_t value,
+__forceinline__ __host__ hipError_t memset64Async(void* devPtr, uint64_t value,
                                                    size_t count,
-                                                   cudaStream_t stream = 0) {
+                                                   hipStream_t stream = 0) {
   int blockSize = 256;
   int numBlocks = (count + blockSize - 1) / blockSize;
   memset64bitKernel<<<numBlocks, blockSize, 0, stream>>>(devPtr, value, count);
-  return cudaGetLastError();
+  return hipGetLastError();
 }
 
-#define CUDA_FREE_POINTERS(stream, ...) \
+#define ROCM_FREE_POINTERS(stream, ...) \
   nv::merlin::free_pointers(            \
       stream, (sizeof((void*[]){__VA_ARGS__}) / sizeof(void*)), __VA_ARGS__);
 

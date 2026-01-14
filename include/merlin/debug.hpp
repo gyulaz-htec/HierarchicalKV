@@ -16,7 +16,7 @@
 
 #pragma once
 
-#include <cuda_runtime_api.h>
+#include <hip/hip_runtime_api.h>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -29,22 +29,22 @@ class CudaException : public std::runtime_error {
   CudaException(const std::string& what) : runtime_error(what) {}
 };
 
-inline void cuda_check_(cudaError_t val, const char* file, int line) {
-  if (val != cudaSuccess) {
+inline void rocm_check_(hipError_t val, const char* file, int line) {
+  if (val != hipSuccess) {
     std::ostringstream os;
-    os << file << ':' << line << ": CUDA error " << cudaGetErrorName(val)
-       << " (#" << val << "): " << cudaGetErrorString(val);
+    os << file << ':' << line << ": ROCM error " << hipGetErrorName(val)
+       << " (#" << val << "): " << hipGetErrorString(val);
     throw CudaException(os.str());
   }
 }
 
-#ifdef CUDA_CHECK
-#error Unexpected redfinition of CUDA_CHECK! Something is wrong.
+#ifdef ROCM_CHECK
+#error Unexpected redfinition of ROCM_CHECK! Something is wrong.
 #endif
 
-#define CUDA_CHECK(val)                                 \
+#define ROCM_CHECK(val)                                 \
   do {                                                  \
-    nv::merlin::cuda_check_((val), __FILE__, __LINE__); \
+    nv::merlin::rocm_check_((val), __FILE__, __LINE__); \
   } while (0)
 
 class MerlinException : public std::runtime_error {

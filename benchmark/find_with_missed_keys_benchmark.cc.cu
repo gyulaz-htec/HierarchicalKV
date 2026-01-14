@@ -98,9 +98,9 @@ void test_find(size_t capacity, size_t dim, size_t max_hbm_for_vectors,
   options.max_bucket_size = max_bucket_size;
 
   size_t key_num = capacity;
-  CUDA_CHECK(cudaMallocHost(&h_keys, key_num * sizeof(K)));
-  CUDA_CHECK(cudaMallocHost(&h_scores, key_num * sizeof(S)));
-  CUDA_CHECK(cudaMallocHost(&h_vectors, key_num * options.dim * sizeof(V)));
+  ROCM_CHECK(hipHostMalloc(&h_keys, key_num * sizeof(K)));
+  ROCM_CHECK(hipHostMalloc(&h_scores, key_num * sizeof(S)));
+  ROCM_CHECK(hipHostMalloc(&h_vectors, key_num * options.dim * sizeof(V)));
 
   K* d_keys;
   S* d_scores;
@@ -109,32 +109,32 @@ void test_find(size_t capacity, size_t dim, size_t max_hbm_for_vectors,
   int* d_missed_indices;
   int* d_missed_size;
 
-  CUDA_CHECK(cudaMalloc(&d_keys, key_num * sizeof(K)));
-  CUDA_CHECK(cudaMalloc(&d_scores, key_num * sizeof(S)));
-  CUDA_CHECK(cudaMalloc(&d_vectors, key_num * sizeof(V) * options.dim));
-  CUDA_CHECK(cudaMalloc(&d_missed_keys, key_num * sizeof(K)));
-  CUDA_CHECK(cudaMalloc(&d_missed_indices, key_num * sizeof(int)));
-  CUDA_CHECK(cudaMalloc(&d_missed_size, sizeof(int)));
+  ROCM_CHECK(hipMalloc(&d_keys, key_num * sizeof(K)));
+  ROCM_CHECK(hipMalloc(&d_scores, key_num * sizeof(S)));
+  ROCM_CHECK(hipMalloc(&d_vectors, key_num * sizeof(V) * options.dim));
+  ROCM_CHECK(hipMalloc(&d_missed_keys, key_num * sizeof(K)));
+  ROCM_CHECK(hipMalloc(&d_missed_indices, key_num * sizeof(int)));
+  ROCM_CHECK(hipMalloc(&d_missed_size, sizeof(int)));
 
-  cudaStream_t stream;
-  CUDA_CHECK(cudaStreamCreate(&stream));
+  hipStream_t stream;
+  ROCM_CHECK(hipStreamCreate(&stream));
   // insert key-value
   size_t insert_num = (double)key_num * load_factor;
   benchmark::create_continuous_keys<K, S>(h_keys, h_scores, insert_num,
                                           0 /*start*/);
   benchmark::init_value_using_key<K, V>(h_keys, h_vectors, insert_num,
                                         options.dim);
-  CUDA_CHECK(cudaMemcpy(d_keys, h_keys, insert_num * sizeof(K),
-                        cudaMemcpyHostToDevice));
-  CUDA_CHECK(cudaMemcpy(d_scores, h_scores, insert_num * sizeof(S),
-                        cudaMemcpyHostToDevice));
-  CUDA_CHECK(cudaMemcpy(d_vectors, h_vectors,
+  ROCM_CHECK(hipMemcpy(d_keys, h_keys, insert_num * sizeof(K),
+                        hipMemcpyHostToDevice));
+  ROCM_CHECK(hipMemcpy(d_scores, h_scores, insert_num * sizeof(S),
+                        hipMemcpyHostToDevice));
+  ROCM_CHECK(hipMemcpy(d_vectors, h_vectors,
                         insert_num * sizeof(V) * options.dim,
-                        cudaMemcpyHostToDevice));
+                        hipMemcpyHostToDevice));
   Table table;
   table.init(options);
   table.insert_or_assign(insert_num, d_keys, d_vectors, d_scores, stream);
-  CUDA_CHECK(cudaStreamSynchronize(stream));
+  ROCM_CHECK(hipStreamSynchronize(stream));
 
   // find key-value
   size_t find_num = (double)insert_num * (1.0 - missed_ratio);
@@ -142,25 +142,25 @@ void test_find(size_t capacity, size_t dim, size_t max_hbm_for_vectors,
                                           0 /*start*/);
   benchmark::create_continuous_keys<K, S>(
       h_keys + find_num, nullptr, insert_num - find_num, insert_num /*start*/);
-  CUDA_CHECK(cudaMemcpy(d_keys, h_keys, insert_num * sizeof(K),
-                        cudaMemcpyHostToDevice));
+  ROCM_CHECK(hipMemcpy(d_keys, h_keys, insert_num * sizeof(K),
+                        hipMemcpyHostToDevice));
 
   auto timer = benchmark::Timer<double>();
   timer.start();
   table.find(insert_num, d_keys, d_vectors, d_missed_keys, d_missed_indices,
              d_missed_size, d_scores, stream);
-  CUDA_CHECK(cudaStreamSynchronize(stream));
+  ROCM_CHECK(hipStreamSynchronize(stream));
   timer.end();
 
-  CUDA_CHECK(cudaFreeHost(h_keys));
-  CUDA_CHECK(cudaFreeHost(h_scores));
-  CUDA_CHECK(cudaFreeHost(h_vectors));
-  CUDA_CHECK(cudaFree(d_keys));
-  CUDA_CHECK(cudaFree(d_scores));
-  CUDA_CHECK(cudaFree(d_vectors));
-  CUDA_CHECK(cudaFree(d_missed_keys));
-  CUDA_CHECK(cudaFree(d_missed_indices));
-  CUDA_CHECK(cudaFree(d_missed_size));
+  ROCM_CHECK(hipHostFree(h_keys));
+  ROCM_CHECK(hipHostFree(h_scores));
+  ROCM_CHECK(hipHostFree(h_vectors));
+  ROCM_CHECK(hipFree(d_keys));
+  ROCM_CHECK(hipFree(d_scores));
+  ROCM_CHECK(hipFree(d_vectors));
+  ROCM_CHECK(hipFree(d_missed_keys));
+  ROCM_CHECK(hipFree(d_missed_indices));
+  ROCM_CHECK(hipFree(d_missed_size));
 
   CudaCheckError();
   float througput = insert_num / timer.getResult() / (1024 * 1024 * 1024.0f);

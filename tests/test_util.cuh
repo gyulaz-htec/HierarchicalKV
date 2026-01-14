@@ -1,3 +1,5 @@
+#include "hip/hip_runtime.h"
+#include "hip/hip_runtime.h"
 /*
  * Copyright (c) 2022, NVIDIA CORPORATION.
  *
@@ -53,16 +55,16 @@ __global__ void host_nano_kernel(S* d_clk) {
 }
 
 template <class S>
-S host_nano(cudaStream_t stream = 0) {
+S host_nano(hipStream_t stream = 0) {
   S h_clk = 0;
   S* d_clk;
 
-  CUDA_CHECK(cudaMalloc((void**)&(d_clk), sizeof(S)));
+  ROCM_CHECK(hipMalloc((void**)&(d_clk), sizeof(S)));
   host_nano_kernel<S><<<1, 1, 0, stream>>>(d_clk);
-  CUDA_CHECK(cudaStreamSynchronize(stream));
+  ROCM_CHECK(hipStreamSynchronize(stream));
 
-  CUDA_CHECK(cudaMemcpy(&h_clk, d_clk, sizeof(S), cudaMemcpyDeviceToHost));
-  CUDA_CHECK(cudaFree(d_clk));
+  ROCM_CHECK(hipMemcpy(&h_clk, d_clk, sizeof(S), hipMemcpyDeviceToHost));
+  ROCM_CHECK(hipFree(d_clk));
   return h_clk;
 }
 
@@ -376,14 +378,14 @@ S make_expected_score_for_epochlfu(S global_epoch, S original_score) {
 }
 
 template <typename T>
-void getBufferOnDevice(T** ptr, size_t size, cudaStream_t stream) {
+void getBufferOnDevice(T** ptr, size_t size, hipStream_t stream) {
   MERLIN_EXPECT_TRUE((*ptr == nullptr), "Pointer is already assigned.");
-  CUDA_CHECK(cudaMallocAsync(ptr, size, stream));
-  CUDA_CHECK(cudaMemsetAsync(*ptr, 0, size, stream));
+  ROCM_CHECK(hipMallocAsync(ptr, size, stream));
+  ROCM_CHECK(hipMemsetAsync(*ptr, 0, size, stream));
 }
 
-void freeBufferOnDevice(void* ptr, cudaStream_t stream) {
-  CUDA_CHECK(cudaFreeAsync(ptr, stream));
+void freeBufferOnDevice(void* ptr, hipStream_t stream) {
+  ROCM_CHECK(hipFreeAsync(ptr, stream));
   ptr = nullptr;
 }
 
@@ -405,16 +407,16 @@ struct ValueArray {
 template <typename T>
 struct HostAndDeviceBuffer {
  public:
-  void Alloc(size_t n, cudaStream_t stream = 0) {
+  void Alloc(size_t n, hipStream_t stream = 0) {
     if (d_data) {
-      CUDA_FREE_POINTERS(stream, d_data);
+      ROCM_FREE_POINTERS(stream, d_data);
     }
     if (h_data) {
       free(h_data);
       h_data = nullptr;
     }
     if (d_data) {
-      CUDA_CHECK(cudaStreamSynchronize(stream));
+      ROCM_CHECK(hipStreamSynchronize(stream));
       d_data = nullptr;
     }
     getBufferOnDevice(&d_data, n * sizeof(T), stream);
@@ -423,41 +425,41 @@ struct HostAndDeviceBuffer {
   }
 
   ~HostAndDeviceBuffer() {
-    CUDA_CHECK(cudaDeviceSynchronize());
+    ROCM_CHECK(hipDeviceSynchronize());
     Free();
-    CUDA_CHECK(cudaDeviceSynchronize());
+    ROCM_CHECK(hipDeviceSynchronize());
   }
 
-  void Free(cudaStream_t stream = 0) {
+  void Free(hipStream_t stream = 0) {
     if (d_data) {
-      CUDA_FREE_POINTERS(stream, d_data);
+      ROCM_FREE_POINTERS(stream, d_data);
     }
     if (h_data) {
       free(h_data);
       h_data = nullptr;
     }
     if (d_data) {
-      CUDA_CHECK(cudaStreamSynchronize(stream));
+      ROCM_CHECK(hipStreamSynchronize(stream));
       d_data = nullptr;
     }
     size_ = 0;
   }
 
-  void SetFromHost(const T* data, size_t n, cudaStream_t stream = 0) {
-    CUDA_CHECK(cudaMemcpyAsync(d_data, data, n * sizeof(T),
-                               cudaMemcpyHostToDevice, stream));
+  void SetFromHost(const T* data, size_t n, hipStream_t stream = 0) {
+    ROCM_CHECK(hipMemcpyAsync(d_data, data, n * sizeof(T),
+                               hipMemcpyHostToDevice, stream));
     memcpy(h_data, data, n * sizeof(T));
   }
 
-  void SetFromDevice(const T* data, size_t n, cudaStream_t stream = 0) {
-    CUDA_CHECK(cudaMemcpyAsync(d_data, data, n * sizeof(T),
-                               cudaMemcpyDeviceToDevice, stream));
-    CUDA_CHECK(cudaMemcpyAsync(h_data, data, n * sizeof(T),
-                               cudaMemcpyDeviceToHost, stream));
+  void SetFromDevice(const T* data, size_t n, hipStream_t stream = 0) {
+    ROCM_CHECK(hipMemcpyAsync(d_data, data, n * sizeof(T),
+                               hipMemcpyDeviceToDevice, stream));
+    ROCM_CHECK(hipMemcpyAsync(h_data, data, n * sizeof(T),
+                               hipMemcpyDeviceToHost, stream));
   }
 
   bool SetValueInRange(T start, T skip, size_t stripe,
-                       cudaStream_t stream = 0) {
+                       hipStream_t stream = 0) {
     if (!h_data || skip == 0 || stripe == 0 || size_ % stripe != 0) {
       return false;
     }
@@ -469,31 +471,31 @@ struct HostAndDeviceBuffer {
         h_data[i * stripe + j] = value;
       }
     }
-    CUDA_CHECK(cudaMemcpyAsync(d_data, h_data, size_ * sizeof(T),
-                               cudaMemcpyHostToDevice, stream));
+    ROCM_CHECK(hipMemcpyAsync(d_data, h_data, size_ * sizeof(T),
+                               hipMemcpyHostToDevice, stream));
     return true;
   }
 
-  void ToZeros(cudaStream_t stream = 0) {
-    CUDA_CHECK(cudaMemsetAsync(d_data, 0, size_ * sizeof(T), stream));
+  void ToZeros(hipStream_t stream = 0) {
+    ROCM_CHECK(hipMemsetAsync(d_data, 0, size_ * sizeof(T), stream));
     memset(h_data, 0, size_ * sizeof(T));
   }
 
-  void ToConst(const T val, cudaStream_t stream) {
+  void ToConst(const T val, hipStream_t stream) {
     for (size_t i = 0; i < size_; i++) {
       h_data[i] = val;
     }
-    CUDA_CHECK(cudaMemcpyAsync(d_data, h_data, size_ * sizeof(T),
-                               cudaMemcpyHostToDevice, stream));
+    ROCM_CHECK(hipMemcpyAsync(d_data, h_data, size_ * sizeof(T),
+                               hipMemcpyHostToDevice, stream));
   }
 
-  void SyncData(bool h2d, cudaStream_t stream = 0) {
+  void SyncData(bool h2d, hipStream_t stream = 0) {
     if (h2d) {
-      CUDA_CHECK(cudaMemcpyAsync(d_data, h_data, size_ * sizeof(T),
-                                 cudaMemcpyHostToDevice, stream));
+      ROCM_CHECK(hipMemcpyAsync(d_data, h_data, size_ * sizeof(T),
+                                 hipMemcpyHostToDevice, stream));
     } else {
-      CUDA_CHECK(cudaMemcpyAsync(h_data, d_data, size_ * sizeof(T),
-                                 cudaMemcpyDeviceToHost, stream));
+      ROCM_CHECK(hipMemcpyAsync(h_data, d_data, size_ * sizeof(T),
+                                 hipMemcpyDeviceToHost, stream));
     }
   }
 
@@ -508,7 +510,7 @@ struct KVMSBuffer {
  public:
   KVMSBuffer() : len_(0), dim_(0) {}
 
-  void Reserve(size_t n, size_t dim, cudaStream_t stream = 0) {
+  void Reserve(size_t n, size_t dim, hipStream_t stream = 0) {
     keys.Alloc(n, stream);
     values.Alloc(n * dim, stream);
     scores.Alloc(n, stream);
@@ -518,12 +520,12 @@ struct KVMSBuffer {
   }
 
   ~KVMSBuffer() {
-    CUDA_CHECK(cudaDeviceSynchronize());
+    ROCM_CHECK(hipDeviceSynchronize());
     Free();
-    CUDA_CHECK(cudaDeviceSynchronize());
+    ROCM_CHECK(hipDeviceSynchronize());
   }
 
-  void Free(cudaStream_t stream = 0) {
+  void Free(hipStream_t stream = 0) {
     keys.Free(stream);
     values.Free(stream);
     scores.Free(stream);
@@ -534,7 +536,7 @@ struct KVMSBuffer {
   size_t len() const { return len_; }
   size_t dim() const { return dim_; }
 
-  void ToRange(size_t start, size_t skip = 1, cudaStream_t stream = 0) {
+  void ToRange(size_t start, size_t skip = 1, hipStream_t stream = 0) {
     keys.SetValueInRange(static_cast<K>(start), static_cast<K>(skip), 1,
                          stream);
     values.SetValueInRange(static_cast<V>(start), static_cast<V>(skip), dim_,
@@ -542,14 +544,14 @@ struct KVMSBuffer {
     status.ToZeros(stream);
   }
 
-  void ToZeros(cudaStream_t stream) {
+  void ToZeros(hipStream_t stream) {
     keys.ToZeros(stream);
     values.ToZeros(stream);
     scores.ToZeros(stream);
     status.ToZeros(stream);
   }
 
-  void Setscore(const S score, cudaStream_t stream) {
+  void Setscore(const S score, hipStream_t stream) {
     scores.ToConst(score, stream);
   }
 
@@ -581,14 +583,14 @@ struct KVMSBuffer {
     return status.h_data;
   }
 
-  void SyncData(bool h2d, cudaStream_t stream = 0) {
+  void SyncData(bool h2d, hipStream_t stream = 0) {
     keys.SyncData(h2d, stream);
     values.SyncData(h2d, stream);
     scores.SyncData(h2d, stream);
     status.SyncData(h2d, stream);
   }
 
-  void CopyFrom(KVMSBuffer<K, V, S>& src, cudaStream_t stream = 0) {
+  void CopyFrom(KVMSBuffer<K, V, S>& src, hipStream_t stream = 0) {
     memcpy(keys_ptr(false), src.keys_ptr(false), sizeof(K) * len());
     memcpy(scores_ptr(false), src.scores_ptr(false), sizeof(S) * len());
     memcpy(values_ptr(false), src.values_ptr(false), sizeof(V) * len() * dim());
@@ -599,7 +601,7 @@ struct KVMSBuffer {
   }
 
   void CopyFromByRate(KVMSBuffer<K, V, S>& src, float repeat_rate,
-                      cudaStream_t stream = 0) {
+                      hipStream_t stream = 0) {
     memcpy(keys_ptr(false), src.keys_ptr(false), sizeof(K) * len());
     memcpy(scores_ptr(false), src.scores_ptr(false), sizeof(S) * len());
     memcpy(values_ptr(false), src.values_ptr(false), sizeof(V) * len() * dim());
@@ -618,38 +620,38 @@ struct KVMSBuffer {
   size_t len_;
 };
 
-bool allTrueGpu(const bool* conds, size_t n, cudaStream_t stream) {
+bool allTrueGpu(const bool* conds, size_t n, hipStream_t stream) {
   int nfalse = 0;
   int* d_nfalse = nullptr;
   getBufferOnDevice(&d_nfalse, sizeof(int), stream);
   int block_size = 128;
   int grid_size = (n + block_size - 1) / block_size;
   all_true<<<grid_size, block_size, 0, stream>>>(conds, n, d_nfalse);
-  CUDA_CHECK(cudaMemcpyAsync(&nfalse, d_nfalse, sizeof(int),
-                             cudaMemcpyDeviceToHost, stream));
-  cudaStreamSynchronize(stream);
+  ROCM_CHECK(hipMemcpyAsync(&nfalse, d_nfalse, sizeof(int),
+                             hipMemcpyDeviceToHost, stream));
+  hipStreamSynchronize(stream);
   freeBufferOnDevice(d_nfalse, stream);
-  cudaStreamSynchronize(stream);
+  hipStreamSynchronize(stream);
   return nfalse == 0;
 }
 
 template <typename T>
-bool allEqualGpu(T* a, T* b, size_t n, cudaStream_t stream) {
+bool allEqualGpu(T* a, T* b, size_t n, hipStream_t stream) {
   int ndiff = 0;
   int* d_ndiff = nullptr;
   getBufferOnDevice(&d_ndiff, sizeof(int), stream);
   int block_size = 128;
   int grid_size = (n + block_size - 1) / block_size;
   all_equal<<<grid_size, block_size, 0, stream>>>(a, b, n, d_ndiff);
-  CUDA_CHECK(cudaMemcpyAsync(&ndiff, d_ndiff, sizeof(int),
-                             cudaMemcpyDeviceToHost, stream));
+  ROCM_CHECK(hipMemcpyAsync(&ndiff, d_ndiff, sizeof(int),
+                             hipMemcpyDeviceToHost, stream));
   freeBufferOnDevice(d_ndiff, stream);
-  cudaStreamSynchronize(stream);
+  hipStreamSynchronize(stream);
   return ndiff == 0;
 }
 
 template <typename K, typename V, typename S, typename Table>
-bool tables_equal(Table* a, Table* b, bool check_score, cudaStream_t stream) {
+bool tables_equal(Table* a, Table* b, bool check_score, hipStream_t stream) {
   size_t size = a->size(stream);
   if (size != b->size(stream)) {
     return false;
@@ -679,17 +681,17 @@ bool tables_equal(Table* a, Table* b, bool check_score, cudaStream_t stream) {
                   stream);
   b->find(size, d_keys, d_vectors_in_b, d_founds_in_b, d_scores_in_b, stream);
   if (!allTrueGpu(d_founds_in_b, size, stream)) {
-    CUDA_FREE_POINTERS(stream, d_size, d_keys, d_vectors, d_scores,
+    ROCM_FREE_POINTERS(stream, d_size, d_keys, d_vectors, d_scores,
                        d_founds_in_b, d_vectors_in_b, d_scores_in_b);
     return false;
   }
   if (check_score && !allEqualGpu<S>(d_scores, d_scores_in_b, size, stream)) {
-    CUDA_FREE_POINTERS(stream, d_size, d_keys, d_vectors, d_scores,
+    ROCM_FREE_POINTERS(stream, d_size, d_keys, d_vectors, d_scores,
                        d_founds_in_b, d_vectors_in_b, d_scores_in_b);
     return false;
   }
   if (!allEqualGpu(d_vectors, d_vectors_in_b, size * a->dim(), stream)) {
-    CUDA_FREE_POINTERS(stream, d_size, d_keys, d_vectors, d_scores,
+    ROCM_FREE_POINTERS(stream, d_size, d_keys, d_vectors, d_scores,
                        d_founds_in_b, d_vectors_in_b, d_scores_in_b);
     return false;
   }
@@ -757,7 +759,7 @@ __global__ void read_from_ptr_kernel(const V* const* __restrict src,
 
 template <class V>
 void read_from_ptr(const V* const* __restrict src, V* __restrict dst,
-                   const size_t dim, size_t n, cudaStream_t stream) {
+                   const size_t dim, size_t n, hipStream_t stream) {
   const size_t block_size = 1024;
   const size_t N = n * dim;
   const size_t grid_size = nv::merlin::SAFE_GET_GRID_SIZE(N, block_size);
@@ -779,7 +781,7 @@ __global__ void array2ptr_kernel(V** ptr, V* __restrict array, const size_t dim,
 
 template <class V>
 void array2ptr(V** ptr, V* __restrict array, const size_t dim, size_t n,
-               cudaStream_t stream) {
+               hipStream_t stream) {
   const size_t block_size = 1024;
   const size_t N = n;
   const size_t grid_size = nv::merlin::SAFE_GET_GRID_SIZE(N, block_size);
@@ -808,7 +810,7 @@ __global__ void read_or_write_ptr_kernel(V** __restrict src, V* __restrict dst,
 template <class V>
 void read_or_write_ptr(V** __restrict src, V* __restrict dst,
                        bool* read_or_write, const size_t dim, size_t n,
-                       cudaStream_t stream) {
+                       hipStream_t stream) {
   const size_t block_size = 1024;
   const size_t N = n * dim;
   const size_t grid_size = nv::merlin::SAFE_GET_GRID_SIZE(N, block_size);

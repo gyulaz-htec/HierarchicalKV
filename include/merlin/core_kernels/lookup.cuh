@@ -1,3 +1,5 @@
+#include "hip/hip_runtime.h"
+#include "hip/hip_runtime.h"
 /*
  * Copyright (c) 2023, NVIDIA CORPORATION.
  *
@@ -661,7 +663,7 @@ template <typename K, typename V, typename S, typename CopyScore, typename VecV,
 struct LaunchPipelineLookupV1 {
   template <template <typename, typename, typename> typename LookupKernelParams>
   static void launch_kernel(LookupKernelParams<K, V, S>& params,
-                            cudaStream_t& stream) {
+                            hipStream_t& stream) {
     constexpr int BLOCK_SIZE = 128;
     // Using 32 threads to deal with one key
     constexpr int GROUP_SIZE = 32;
@@ -700,7 +702,7 @@ template <typename K, typename V, typename S, typename CopyScore, typename VecV,
 struct LaunchPipelineLookupV2 {
   template <template <typename, typename, typename> typename LookupKernelParams>
   static void launch_kernel(LookupKernelParams<K, V, S>& params,
-                            cudaStream_t& stream) {
+                            hipStream_t& stream) {
     constexpr int BLOCK_SIZE = 128;
     // Using 16 threads to deal with one key
     constexpr int GROUP_SIZE = 16;
@@ -761,7 +763,7 @@ struct SelectPipelineLookupKernelWithIO {
 
   template <template <typename, typename, typename> typename LookupKernelParams>
   static void select_kernel(LookupKernelParams<K, V, S>& params,
-                            cudaStream_t& stream) {
+                            hipStream_t& stream) {
     constexpr int BUCKET_SIZE = 128;
     constexpr uint32_t buf_size_v1 = ValueBufConfig::size_pipeline_v1;
     constexpr uint32_t buf_size_v2 = ValueBufConfig::size_pipeline_v2;
@@ -914,7 +916,7 @@ __global__ void lookup_kernel_with_io(
       if (found) {
         if (scores != nullptr) {
           *(scores + key_idx) =
-              bucket->scores(key_pos)->load(cuda::std::memory_order_relaxed);
+              bucket->scores(key_pos)->load(hip::std::memory_order_relaxed);
         }
       }
     }
@@ -929,7 +931,7 @@ struct SelectLookupKernelWithIOImpl {
   static void execute_kernel(const float& load_factor, const int& block_size,
                              const size_t bucket_max_size,
                              const size_t buckets_num, const size_t dim,
-                             cudaStream_t& stream, const size_t& n,
+                             hipStream_t& stream, const size_t& n,
                              const Table<K, V, S>* __restrict table,
                              Bucket<K, V, S>* buckets, const K* __restrict keys,
                              V* __restrict values, S* __restrict scores,
@@ -960,7 +962,7 @@ struct SelectLookupKernelWithIO {
   static void execute_kernel(const float& load_factor, const int& block_size,
                              const size_t bucket_max_size,
                              const size_t buckets_num, const size_t dim,
-                             cudaStream_t& stream, const size_t& n,
+                             hipStream_t& stream, const size_t& n,
                              const Table<K, V, S>* __restrict table,
                              Bucket<K, V, S>* buckets, const K* __restrict keys,
                              V* __restrict values, S* __restrict scores,
@@ -978,7 +980,7 @@ struct SelectLookupKernelWithIOV2 {
   static void execute_kernel(const float& load_factor, const int& block_size,
                              const size_t bucket_max_size,
                              const size_t buckets_num, const size_t dim,
-                             cudaStream_t& stream, const size_t& n,
+                             hipStream_t& stream, const size_t& n,
                              const Table<K, V, S>* __restrict table,
                              Bucket<K, V, S>* buckets, const K* __restrict keys,
                              V* __restrict values, S* __restrict scores,
@@ -1056,7 +1058,7 @@ __device__ void tlp_lookup_kernel_hybrid_impl(
       cmp_result &= 0x01010101;
       do {
         if (cmp_result == 0) break;
-        // CUDA uses little endian,
+        // ROCM uses little endian,
         // and the lowest byte in register stores in the lowest address.
         uint32_t index = (__ffs(cmp_result) - 1) >> 3;
         cmp_result &= (cmp_result - 1);
@@ -1169,7 +1171,7 @@ __device__ void lookup_kernel_impl(
         *(values + key_idx) = (bucket->vectors + key_pos * dim);
         if (scores != nullptr) {
           *(scores + key_idx) =
-              bucket->scores(key_pos)->load(cuda::std::memory_order_relaxed);
+              bucket->scores(key_pos)->load(hip::std::memory_order_relaxed);
         }
       }
     } else {

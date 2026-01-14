@@ -1,3 +1,5 @@
+#include "hip/hip_runtime.h"
+#include "hip/hip_runtime.h"
 /*
  * Copyright (c) 2023, NVIDIA CORPORATION.
  *
@@ -85,7 +87,7 @@ __global__ void tlp_lookup_ptr_kernel_with_filter(
       cmp_result &= 0x01010101;
       do {
         if (cmp_result == 0) break;
-        // CUDA uses little endian,
+        // ROCM uses little endian,
         // and the lowest byte in register stores in the lowest address.
         uint32_t index = (__ffs(cmp_result) - 1) >> 3;
         cmp_result &= (cmp_result - 1);
@@ -96,14 +98,14 @@ __global__ void tlp_lookup_ptr_kernel_with_filter(
           // Modifications to the bucket will not before this instruction.
           bool result = current_key->compare_exchange_strong(
               expected_key, static_cast<K>(LOCKED_KEY),
-              cuda::std::memory_order_acquire, cuda::std::memory_order_relaxed);
+              hip::std::memory_order_acquire, hip::std::memory_order_relaxed);
           if (result) {
             occupy_result = OccupyResult::DUPLICATE;
             key_pos = possible_pos;
             ScoreFunctor::update_with_digest(bucket_keys_ptr, key_pos, scores,
                                              kv_idx, score, bucket_capacity,
                                              get_digest<K>(key), false);
-            current_key->store(key, cuda::std::memory_order_release);
+            current_key->store(key, hip::std::memory_order_release);
             score = *BUCKET::scores(bucket_keys_ptr, bucket_capacity, key_pos);
             goto WRITE_BACK;
           }
@@ -203,7 +205,7 @@ __global__ void lookup_ptr_kernel(const Table<K, V, S>* __restrict table,
         values[key_idx] = bucket->vectors + key_pos * dim;
         if (scores != nullptr) {
           *(scores + key_idx) =
-              bucket->scores(key_pos)->load(cuda::std::memory_order_relaxed);
+              bucket->scores(key_pos)->load(hip::std::memory_order_relaxed);
         }
       } else {
         values[key_idx] = nullptr;
@@ -217,7 +219,7 @@ struct SelectLookupPtrKernel {
   static void execute_kernel(const float& load_factor, const int& block_size,
                              const size_t bucket_max_size,
                              const size_t buckets_num, const size_t dim,
-                             cudaStream_t& stream, const size_t& n,
+                             hipStream_t& stream, const size_t& n,
                              const Table<K, V, S>* __restrict table,
                              Bucket<K, V, S>* buckets, const K* __restrict keys,
                              V** __restrict values, S* __restrict scores,

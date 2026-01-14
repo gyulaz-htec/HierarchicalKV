@@ -68,8 +68,8 @@ void test_insert_and_evict_basic() {
 
   std::map<i64, test_util::ValueArray<f32, dim>> summarized_kvs;
 
-  cudaStream_t stream;
-  CUDA_CHECK(cudaStreamCreate(&stream));
+  hipStream_t stream;
+  ROCM_CHECK(hipStreamCreate(&stream));
 
   // step1
   std::unique_ptr<Table> table = std::make_unique<Table>();
@@ -98,7 +98,7 @@ void test_insert_and_evict_basic() {
             evict_buffer.values_ptr(false) + i * dim);
     summarized_kvs.emplace(evict_buffer.keys_ptr(false)[i], *vec);
   }
-  CUDA_CHECK(cudaStreamSynchronize(stream));
+  ROCM_CHECK(hipStreamSynchronize(stream));
 
   //  step3
   evict_buffer.Reserve(N, dim, stream);
@@ -119,7 +119,7 @@ void test_insert_and_evict_basic() {
             evict_buffer.values_ptr(false) + i * dim);
     summarized_kvs.emplace(evict_buffer.keys_ptr(false)[i], *vec);
   }
-  CUDA_CHECK(cudaStreamSynchronize(stream));
+  ROCM_CHECK(hipStreamSynchronize(stream));
 
   // step4
   buffer.Reserve(table_size_n, dim, stream);
@@ -135,7 +135,7 @@ void test_insert_and_evict_basic() {
     summarized_kvs.emplace(buffer.keys_ptr(false)[i], *vec);
   }
 
-  CUDA_CHECK(cudaStreamSynchronize(stream));
+  ROCM_CHECK(hipStreamSynchronize(stream));
   buffer.Free(stream);
   evict_buffer.Free(stream);
 
@@ -156,7 +156,7 @@ void test_insert_and_evict_basic() {
 template <typename K, typename V, typename S, typename Table>
 void CheckInsertAndEvict(Table* table, K* keys, V* values, S* scores,
                          K* evicted_keys, V* evicted_values, S* evicted_scores,
-                         size_t len, cudaStream_t stream, TableOptions& opt) {
+                         size_t len, hipStream_t stream, TableOptions& opt) {
   std::map<i64, test_util::ValueArray<f32, dim>> map_before_insert;
   std::map<i64, test_util::ValueArray<f32, dim>> map_after_insert;
   K* h_tmp_keys = nullptr;
@@ -172,14 +172,14 @@ void CheckInsertAndEvict(Table* table, K* keys, V* values, S* scores,
   size_t table_size_before = table->size(stream);
   size_t cap = table_size_before + len;
 
-  CUDA_CHECK(cudaMallocAsync(&d_tmp_keys, cap * sizeof(K), stream));
-  CUDA_CHECK(cudaMemsetAsync(d_tmp_keys, 0, cap * sizeof(K), stream));
-  CUDA_CHECK(cudaMallocAsync(&d_tmp_values, cap * dim * sizeof(V), stream));
-  CUDA_CHECK(cudaMemsetAsync(d_tmp_values, 0, cap * dim * sizeof(V), stream));
-  CUDA_CHECK(cudaMallocAsync(&d_tmp_scores, cap * sizeof(S), stream));
-  CUDA_CHECK(cudaMemsetAsync(d_tmp_scores, 0, cap * sizeof(S), stream));
-  CUDA_CHECK(cudaMallocAsync(&d_tmp_founds, cap * sizeof(bool), stream));
-  CUDA_CHECK(cudaMemsetAsync(d_tmp_founds, 0, cap * sizeof(bool), stream));
+  ROCM_CHECK(hipMallocAsync(&d_tmp_keys, cap * sizeof(K), stream));
+  ROCM_CHECK(hipMemsetAsync(d_tmp_keys, 0, cap * sizeof(K), stream));
+  ROCM_CHECK(hipMallocAsync(&d_tmp_values, cap * dim * sizeof(V), stream));
+  ROCM_CHECK(hipMemsetAsync(d_tmp_values, 0, cap * dim * sizeof(V), stream));
+  ROCM_CHECK(hipMallocAsync(&d_tmp_scores, cap * sizeof(S), stream));
+  ROCM_CHECK(hipMemsetAsync(d_tmp_scores, 0, cap * sizeof(S), stream));
+  ROCM_CHECK(hipMallocAsync(&d_tmp_founds, cap * sizeof(bool), stream));
+  ROCM_CHECK(hipMemsetAsync(d_tmp_founds, 0, cap * sizeof(bool), stream));
   h_tmp_keys = (K*)malloc(cap * sizeof(K));
   h_tmp_values = (V*)malloc(cap * dim * sizeof(V));
   h_tmp_scores = (S*)malloc(cap * sizeof(S));
@@ -189,24 +189,24 @@ void CheckInsertAndEvict(Table* table, K* keys, V* values, S* scores,
       table->capacity(), 0, d_tmp_keys, d_tmp_values, d_tmp_scores, stream);
   ASSERT_EQ(table_size_before, table_size_verify0);
 
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_keys, d_tmp_keys,
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_keys, d_tmp_keys,
                              table_size_before * sizeof(K),
-                             cudaMemcpyDeviceToHost, stream));
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_values, d_tmp_values,
+                             hipMemcpyDeviceToHost, stream));
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_values, d_tmp_values,
                              table_size_before * dim * sizeof(V),
-                             cudaMemcpyDeviceToHost, stream));
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_scores, d_tmp_scores,
+                             hipMemcpyDeviceToHost, stream));
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_scores, d_tmp_scores,
                              table_size_before * sizeof(S),
-                             cudaMemcpyDeviceToHost, stream));
+                             hipMemcpyDeviceToHost, stream));
 
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_keys + table_size_before, keys,
-                             len * sizeof(K), cudaMemcpyDeviceToHost, stream));
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_values + table_size_before * dim, values,
-                             len * dim * sizeof(V), cudaMemcpyDeviceToHost,
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_keys + table_size_before, keys,
+                             len * sizeof(K), hipMemcpyDeviceToHost, stream));
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_values + table_size_before * dim, values,
+                             len * dim * sizeof(V), hipMemcpyDeviceToHost,
                              stream));
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_scores + table_size_before, scores,
-                             len * sizeof(S), cudaMemcpyDeviceToHost, stream));
-  CUDA_CHECK(cudaStreamSynchronize(stream));
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_scores + table_size_before, scores,
+                             len * sizeof(S), hipMemcpyDeviceToHost, stream));
+  ROCM_CHECK(hipStreamSynchronize(stream));
 
   for (size_t i = 0; i < cap; i++) {
     test_util::ValueArray<V, dim>* vec =
@@ -220,15 +220,15 @@ void CheckInsertAndEvict(Table* table, K* keys, V* values, S* scores,
       len, keys, values,
       Table::evict_strategy == EvictStrategy::kLru ? nullptr : scores,
       evicted_keys, evicted_values, evicted_scores, stream);
-  CUDA_CHECK(cudaStreamSynchronize(stream));
+  ROCM_CHECK(hipStreamSynchronize(stream));
   auto end = std::chrono::steady_clock::now();
   auto diff = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
 
   {
     table->find(len, keys, values, d_tmp_founds, scores, stream);
-    CUDA_CHECK(cudaMemcpyAsync(h_tmp_founds, d_tmp_founds, len * sizeof(bool),
-                               cudaMemcpyDeviceToHost, stream));
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipMemcpyAsync(h_tmp_founds, d_tmp_founds, len * sizeof(bool),
+                               hipMemcpyDeviceToHost, stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
     size_t found_counter = 0;
     for (int i = 0; i < len; i++) {
       if (h_tmp_founds[i]) found_counter++;
@@ -236,12 +236,12 @@ void CheckInsertAndEvict(Table* table, K* keys, V* values, S* scores,
     std::cout << "filtered_len:" << filtered_len
               << ", miss counter:" << len - found_counter << std::endl;
 
-    CUDA_CHECK(cudaMemset(d_tmp_founds, 0, len * sizeof(bool)));
+    ROCM_CHECK(hipMemset(d_tmp_founds, 0, len * sizeof(bool)));
     table->contains(len, keys, d_tmp_founds, stream);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
     int contains_counter = 0;
-    CUDA_CHECK(cudaMemcpyAsync(h_tmp_founds, d_tmp_founds, len * sizeof(bool),
-                               cudaMemcpyDeviceToHost, stream));
+    ROCM_CHECK(hipMemcpyAsync(h_tmp_founds, d_tmp_founds, len * sizeof(bool),
+                               hipMemcpyDeviceToHost, stream));
     for (int i = 0; i < len; i++) {
       if (h_tmp_founds[i]) contains_counter++;
     }
@@ -257,25 +257,25 @@ void CheckInsertAndEvict(Table* table, K* keys, V* values, S* scores,
   ASSERT_EQ(table_size_verify1, table_size_after);
 
   size_t new_cap = table_size_after + filtered_len;
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_keys, d_tmp_keys,
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_keys, d_tmp_keys,
                              table_size_after * sizeof(K),
-                             cudaMemcpyDeviceToHost, stream));
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_values, d_tmp_values,
+                             hipMemcpyDeviceToHost, stream));
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_values, d_tmp_values,
                              table_size_after * dim * sizeof(V),
-                             cudaMemcpyDeviceToHost, stream));
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_scores, d_tmp_scores,
+                             hipMemcpyDeviceToHost, stream));
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_scores, d_tmp_scores,
                              table_size_after * sizeof(S),
-                             cudaMemcpyDeviceToHost, stream));
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_keys + table_size_after, evicted_keys,
-                             filtered_len * sizeof(K), cudaMemcpyDeviceToHost,
+                             hipMemcpyDeviceToHost, stream));
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_keys + table_size_after, evicted_keys,
+                             filtered_len * sizeof(K), hipMemcpyDeviceToHost,
                              stream));
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_values + table_size_after * dim,
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_values + table_size_after * dim,
                              evicted_values, filtered_len * dim * sizeof(V),
-                             cudaMemcpyDeviceToHost, stream));
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_scores + table_size_after, evicted_scores,
-                             filtered_len * sizeof(S), cudaMemcpyDeviceToHost,
+                             hipMemcpyDeviceToHost, stream));
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_scores + table_size_after, evicted_scores,
+                             filtered_len * sizeof(S), hipMemcpyDeviceToHost,
                              stream));
-  CUDA_CHECK(cudaStreamSynchronize(stream));
+  ROCM_CHECK(hipStreamSynchronize(stream));
   int64_t new_cap_i64 = (int64_t)new_cap;
   for (int64_t i = new_cap_i64 - 1; i >= 0; i--) {
     test_util::ValueArray<V, dim>* vec =
@@ -310,15 +310,15 @@ void CheckInsertAndEvict(Table* table, K* keys, V* values, S* scores,
   ASSERT_EQ(key_miss_cnt, 0);
   ASSERT_EQ(value_diff_cnt, 0);
 
-  CUDA_CHECK(cudaFreeAsync(d_tmp_keys, stream));
-  CUDA_CHECK(cudaFreeAsync(d_tmp_values, stream));
-  CUDA_CHECK(cudaFreeAsync(d_tmp_scores, stream));
-  CUDA_CHECK(cudaFreeAsync(d_tmp_founds, stream));
+  ROCM_CHECK(hipFreeAsync(d_tmp_keys, stream));
+  ROCM_CHECK(hipFreeAsync(d_tmp_values, stream));
+  ROCM_CHECK(hipFreeAsync(d_tmp_scores, stream));
+  ROCM_CHECK(hipFreeAsync(d_tmp_founds, stream));
   free(h_tmp_keys);
   free(h_tmp_values);
   free(h_tmp_scores);
   free(h_tmp_founds);
-  CUDA_CHECK(cudaStreamSynchronize(stream));
+  ROCM_CHECK(hipStreamSynchronize(stream));
 }
 
 void test_insert_and_evict_advanced_on_lru() {
@@ -336,8 +336,8 @@ void test_insert_and_evict_advanced_on_lru() {
   using Table = nv::merlin::HashTable<i64, f32, u64, EvictStrategy::kLru>;
   opt.dim = dim;
 
-  cudaStream_t stream;
-  CUDA_CHECK(cudaStreamCreate(&stream));
+  hipStream_t stream;
+  ROCM_CHECK(hipStreamCreate(&stream));
 
   std::unique_ptr<Table> table = std::make_unique<Table>();
   table->init(opt);
@@ -371,7 +371,7 @@ template <typename K, typename V, typename S, typename Table>
 void CheckInsertAndEvictOnLfu(Table* table,
                               test_util::KVMSBuffer<K, V, S>* data_buffer,
                               test_util::KVMSBuffer<K, V, S>* evict_buffer,
-                              size_t len, cudaStream_t stream,
+                              size_t len, hipStream_t stream,
                               TableOptions& opt, unsigned int global_epoch) {
   std::map<K, test_util::ValueArray<V, dim>> values_map_before_insert;
   std::map<K, test_util::ValueArray<V, dim>> values_map_after_insert;
@@ -408,14 +408,14 @@ void CheckInsertAndEvictOnLfu(Table* table,
   size_t table_size_before = table->size(stream);
   size_t cap = table_size_before + len;
 
-  CUDA_CHECK(cudaMallocAsync(&d_tmp_keys, cap * sizeof(K), stream));
-  CUDA_CHECK(cudaMemsetAsync(d_tmp_keys, 0, cap * sizeof(K), stream));
-  CUDA_CHECK(cudaMallocAsync(&d_tmp_values, cap * dim * sizeof(V), stream));
-  CUDA_CHECK(cudaMemsetAsync(d_tmp_values, 0, cap * dim * sizeof(V), stream));
-  CUDA_CHECK(cudaMallocAsync(&d_tmp_scores, cap * sizeof(S), stream));
-  CUDA_CHECK(cudaMemsetAsync(d_tmp_scores, 0, cap * sizeof(S), stream));
-  CUDA_CHECK(cudaMallocAsync(&d_tmp_founds, cap * sizeof(bool), stream));
-  CUDA_CHECK(cudaMemsetAsync(d_tmp_founds, 0, cap * sizeof(bool), stream));
+  ROCM_CHECK(hipMallocAsync(&d_tmp_keys, cap * sizeof(K), stream));
+  ROCM_CHECK(hipMemsetAsync(d_tmp_keys, 0, cap * sizeof(K), stream));
+  ROCM_CHECK(hipMallocAsync(&d_tmp_values, cap * dim * sizeof(V), stream));
+  ROCM_CHECK(hipMemsetAsync(d_tmp_values, 0, cap * dim * sizeof(V), stream));
+  ROCM_CHECK(hipMallocAsync(&d_tmp_scores, cap * sizeof(S), stream));
+  ROCM_CHECK(hipMemsetAsync(d_tmp_scores, 0, cap * sizeof(S), stream));
+  ROCM_CHECK(hipMallocAsync(&d_tmp_founds, cap * sizeof(bool), stream));
+  ROCM_CHECK(hipMemsetAsync(d_tmp_founds, 0, cap * sizeof(bool), stream));
   h_tmp_keys = (K*)malloc(cap * sizeof(K));
   h_tmp_values = (V*)malloc(cap * dim * sizeof(V));
   h_tmp_scores = (S*)malloc(cap * sizeof(S));
@@ -425,24 +425,24 @@ void CheckInsertAndEvictOnLfu(Table* table,
       table->capacity(), 0, d_tmp_keys, d_tmp_values, d_tmp_scores, stream);
   ASSERT_EQ(table_size_before, table_size_verify0);
 
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_keys, d_tmp_keys,
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_keys, d_tmp_keys,
                              table_size_before * sizeof(K),
-                             cudaMemcpyDeviceToHost, stream));
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_values, d_tmp_values,
+                             hipMemcpyDeviceToHost, stream));
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_values, d_tmp_values,
                              table_size_before * dim * sizeof(V),
-                             cudaMemcpyDeviceToHost, stream));
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_scores, d_tmp_scores,
+                             hipMemcpyDeviceToHost, stream));
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_scores, d_tmp_scores,
                              table_size_before * sizeof(S),
-                             cudaMemcpyDeviceToHost, stream));
+                             hipMemcpyDeviceToHost, stream));
 
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_keys + table_size_before, keys,
-                             len * sizeof(K), cudaMemcpyDeviceToHost, stream));
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_values + table_size_before * dim, values,
-                             len * dim * sizeof(V), cudaMemcpyDeviceToHost,
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_keys + table_size_before, keys,
+                             len * sizeof(K), hipMemcpyDeviceToHost, stream));
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_values + table_size_before * dim, values,
+                             len * dim * sizeof(V), hipMemcpyDeviceToHost,
                              stream));
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_scores + table_size_before, scores,
-                             len * sizeof(S), cudaMemcpyDeviceToHost, stream));
-  CUDA_CHECK(cudaStreamSynchronize(stream));
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_scores + table_size_before, scores,
+                             len * sizeof(S), hipMemcpyDeviceToHost, stream));
+  ROCM_CHECK(hipStreamSynchronize(stream));
 
   for (size_t i = 0; i < cap; i++) {
     test_util::ValueArray<V, dim>* vec =
@@ -465,26 +465,26 @@ void CheckInsertAndEvictOnLfu(Table* table,
           : scores,
       evicted_keys, evicted_values, evicted_scores, stream);
   evict_buffer->SyncData(false, stream);
-  CUDA_CHECK(cudaStreamSynchronize(stream));
+  ROCM_CHECK(hipStreamSynchronize(stream));
   auto end = std::chrono::steady_clock::now();
   auto diff = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
 
   {
     table->find(len, keys, values, d_tmp_founds, scores, stream);
-    CUDA_CHECK(cudaMemcpyAsync(h_tmp_founds, d_tmp_founds, len * sizeof(bool),
-                               cudaMemcpyDeviceToHost, stream));
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipMemcpyAsync(h_tmp_founds, d_tmp_founds, len * sizeof(bool),
+                               hipMemcpyDeviceToHost, stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
     size_t found_counter = 0;
     for (int i = 0; i < len; i++) {
       if (h_tmp_founds[i]) found_counter++;
     }
 
-    CUDA_CHECK(cudaMemset(d_tmp_founds, 0, len * sizeof(bool)));
+    ROCM_CHECK(hipMemset(d_tmp_founds, 0, len * sizeof(bool)));
     table->contains(len, keys, d_tmp_founds, stream);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
     int contains_counter = 0;
-    CUDA_CHECK(cudaMemcpyAsync(h_tmp_founds, d_tmp_founds, len * sizeof(bool),
-                               cudaMemcpyDeviceToHost, stream));
+    ROCM_CHECK(hipMemcpyAsync(h_tmp_founds, d_tmp_founds, len * sizeof(bool),
+                               hipMemcpyDeviceToHost, stream));
     for (int i = 0; i < len; i++) {
       if (h_tmp_founds[i]) contains_counter++;
     }
@@ -505,25 +505,25 @@ void CheckInsertAndEvictOnLfu(Table* table,
   ASSERT_EQ(table_size_verify1, table_size_after);
 
   size_t new_cap = table_size_after + filtered_len;
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_keys, d_tmp_keys,
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_keys, d_tmp_keys,
                              table_size_after * sizeof(K),
-                             cudaMemcpyDeviceToHost, stream));
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_values, d_tmp_values,
+                             hipMemcpyDeviceToHost, stream));
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_values, d_tmp_values,
                              table_size_after * dim * sizeof(V),
-                             cudaMemcpyDeviceToHost, stream));
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_scores, d_tmp_scores,
+                             hipMemcpyDeviceToHost, stream));
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_scores, d_tmp_scores,
                              table_size_after * sizeof(S),
-                             cudaMemcpyDeviceToHost, stream));
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_keys + table_size_after, evicted_keys,
-                             filtered_len * sizeof(K), cudaMemcpyDeviceToHost,
+                             hipMemcpyDeviceToHost, stream));
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_keys + table_size_after, evicted_keys,
+                             filtered_len * sizeof(K), hipMemcpyDeviceToHost,
                              stream));
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_values + table_size_after * dim,
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_values + table_size_after * dim,
                              evicted_values, filtered_len * dim * sizeof(V),
-                             cudaMemcpyDeviceToHost, stream));
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_scores + table_size_after, evicted_scores,
-                             filtered_len * sizeof(S), cudaMemcpyDeviceToHost,
+                             hipMemcpyDeviceToHost, stream));
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_scores + table_size_after, evicted_scores,
+                             filtered_len * sizeof(S), hipMemcpyDeviceToHost,
                              stream));
-  CUDA_CHECK(cudaStreamSynchronize(stream));
+  ROCM_CHECK(hipStreamSynchronize(stream));
   int64_t new_cap_i64 = (int64_t)new_cap;
 
   size_t key_miss_cnt = 0;
@@ -583,15 +583,15 @@ void CheckInsertAndEvictOnLfu(Table* table,
   ASSERT_EQ(score_error_cnt, 0);
   ASSERT_EQ(value_diff_cnt, 0);
 
-  CUDA_CHECK(cudaFreeAsync(d_tmp_keys, stream));
-  CUDA_CHECK(cudaFreeAsync(d_tmp_values, stream));
-  CUDA_CHECK(cudaFreeAsync(d_tmp_scores, stream));
-  CUDA_CHECK(cudaFreeAsync(d_tmp_founds, stream));
+  ROCM_CHECK(hipFreeAsync(d_tmp_keys, stream));
+  ROCM_CHECK(hipFreeAsync(d_tmp_values, stream));
+  ROCM_CHECK(hipFreeAsync(d_tmp_scores, stream));
+  ROCM_CHECK(hipFreeAsync(d_tmp_founds, stream));
   free(h_tmp_keys);
   free(h_tmp_values);
   free(h_tmp_scores);
   free(h_tmp_founds);
-  CUDA_CHECK(cudaStreamSynchronize(stream));
+  ROCM_CHECK(hipStreamSynchronize(stream));
 }
 
 void test_insert_and_evict_advanced_on_lfu() {
@@ -609,8 +609,8 @@ void test_insert_and_evict_advanced_on_lfu() {
   using Table = nv::merlin::HashTable<i64, f32, u64, EvictStrategy::kLfu>;
   opt.dim = dim;
 
-  cudaStream_t stream;
-  CUDA_CHECK(cudaStreamCreate(&stream));
+  hipStream_t stream;
+  ROCM_CHECK(hipStreamCreate(&stream));
 
   std::unique_ptr<Table> table = std::make_unique<Table>();
   table->init(opt);
@@ -631,7 +631,7 @@ void test_insert_and_evict_advanced_on_lfu() {
 
     CheckInsertAndEvictOnLfu<i64, f32, u64, Table>(
         table.get(), &data_buffer, &evict_buffer, B, stream, opt, global_epoch);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
 
     offset += B;
   }
@@ -641,7 +641,7 @@ template <typename K, typename V, typename S, typename Table>
 void CheckInsertAndEvictOnEpochLru(Table* table,
                                    test_util::KVMSBuffer<K, V, S>* data_buffer,
                                    test_util::KVMSBuffer<K, V, S>* evict_buffer,
-                                   size_t len, cudaStream_t stream,
+                                   size_t len, hipStream_t stream,
                                    TableOptions& opt,
                                    unsigned int global_epoch) {
   std::map<K, test_util::ValueArray<V, dim>> values_map_before_insert;
@@ -678,14 +678,14 @@ void CheckInsertAndEvictOnEpochLru(Table* table,
   size_t table_size_before = table->size(stream);
   size_t cap = table_size_before + len;
 
-  CUDA_CHECK(cudaMallocAsync(&d_tmp_keys, cap * sizeof(K), stream));
-  CUDA_CHECK(cudaMemsetAsync(d_tmp_keys, 0, cap * sizeof(K), stream));
-  CUDA_CHECK(cudaMallocAsync(&d_tmp_values, cap * dim * sizeof(V), stream));
-  CUDA_CHECK(cudaMemsetAsync(d_tmp_values, 0, cap * dim * sizeof(V), stream));
-  CUDA_CHECK(cudaMallocAsync(&d_tmp_scores, cap * sizeof(S), stream));
-  CUDA_CHECK(cudaMemsetAsync(d_tmp_scores, 0, cap * sizeof(S), stream));
-  CUDA_CHECK(cudaMallocAsync(&d_tmp_founds, cap * sizeof(bool), stream));
-  CUDA_CHECK(cudaMemsetAsync(d_tmp_founds, 0, cap * sizeof(bool), stream));
+  ROCM_CHECK(hipMallocAsync(&d_tmp_keys, cap * sizeof(K), stream));
+  ROCM_CHECK(hipMemsetAsync(d_tmp_keys, 0, cap * sizeof(K), stream));
+  ROCM_CHECK(hipMallocAsync(&d_tmp_values, cap * dim * sizeof(V), stream));
+  ROCM_CHECK(hipMemsetAsync(d_tmp_values, 0, cap * dim * sizeof(V), stream));
+  ROCM_CHECK(hipMallocAsync(&d_tmp_scores, cap * sizeof(S), stream));
+  ROCM_CHECK(hipMemsetAsync(d_tmp_scores, 0, cap * sizeof(S), stream));
+  ROCM_CHECK(hipMallocAsync(&d_tmp_founds, cap * sizeof(bool), stream));
+  ROCM_CHECK(hipMemsetAsync(d_tmp_founds, 0, cap * sizeof(bool), stream));
   h_tmp_keys = (K*)malloc(cap * sizeof(K));
   h_tmp_values = (V*)malloc(cap * dim * sizeof(V));
   h_tmp_scores = (S*)malloc(cap * sizeof(S));
@@ -695,24 +695,24 @@ void CheckInsertAndEvictOnEpochLru(Table* table,
       table->capacity(), 0, d_tmp_keys, d_tmp_values, d_tmp_scores, stream);
   ASSERT_EQ(table_size_before, table_size_verify0);
 
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_keys, d_tmp_keys,
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_keys, d_tmp_keys,
                              table_size_before * sizeof(K),
-                             cudaMemcpyDeviceToHost, stream));
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_values, d_tmp_values,
+                             hipMemcpyDeviceToHost, stream));
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_values, d_tmp_values,
                              table_size_before * dim * sizeof(V),
-                             cudaMemcpyDeviceToHost, stream));
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_scores, d_tmp_scores,
+                             hipMemcpyDeviceToHost, stream));
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_scores, d_tmp_scores,
                              table_size_before * sizeof(S),
-                             cudaMemcpyDeviceToHost, stream));
+                             hipMemcpyDeviceToHost, stream));
 
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_keys + table_size_before, keys,
-                             len * sizeof(K), cudaMemcpyDeviceToHost, stream));
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_values + table_size_before * dim, values,
-                             len * dim * sizeof(V), cudaMemcpyDeviceToHost,
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_keys + table_size_before, keys,
+                             len * sizeof(K), hipMemcpyDeviceToHost, stream));
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_values + table_size_before * dim, values,
+                             len * dim * sizeof(V), hipMemcpyDeviceToHost,
                              stream));
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_scores + table_size_before, scores,
-                             len * sizeof(S), cudaMemcpyDeviceToHost, stream));
-  CUDA_CHECK(cudaStreamSynchronize(stream));
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_scores + table_size_before, scores,
+                             len * sizeof(S), hipMemcpyDeviceToHost, stream));
+  ROCM_CHECK(hipStreamSynchronize(stream));
 
   for (size_t i = 0; i < cap; i++) {
     test_util::ValueArray<V, dim>* vec =
@@ -736,7 +736,7 @@ void CheckInsertAndEvictOnEpochLru(Table* table,
           ? nullptr
           : scores,
       evicted_keys, evicted_values, evicted_scores, stream);
-  CUDA_CHECK(cudaStreamSynchronize(stream));
+  ROCM_CHECK(hipStreamSynchronize(stream));
   auto end = std::chrono::steady_clock::now();
   auto diff = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
 
@@ -744,9 +744,9 @@ void CheckInsertAndEvictOnEpochLru(Table* table,
 
   {
     table->find(len, keys, values, d_tmp_founds, scores, stream);
-    CUDA_CHECK(cudaMemcpyAsync(h_tmp_founds, d_tmp_founds, len * sizeof(bool),
-                               cudaMemcpyDeviceToHost, stream));
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipMemcpyAsync(h_tmp_founds, d_tmp_founds, len * sizeof(bool),
+                               hipMemcpyDeviceToHost, stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
     size_t found_counter = 0;
     for (int i = 0; i < len; i++) {
       if (h_tmp_founds[i]) found_counter++;
@@ -755,12 +755,12 @@ void CheckInsertAndEvictOnEpochLru(Table* table,
               << ", miss counter:" << len - found_counter << std::endl;
     ASSERT_EQ(len, found_counter);
 
-    CUDA_CHECK(cudaMemset(d_tmp_founds, 0, len * sizeof(bool)));
+    ROCM_CHECK(hipMemset(d_tmp_founds, 0, len * sizeof(bool)));
     table->contains(len, keys, d_tmp_founds, stream);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
     int contains_counter = 0;
-    CUDA_CHECK(cudaMemcpyAsync(h_tmp_founds, d_tmp_founds, len * sizeof(bool),
-                               cudaMemcpyDeviceToHost, stream));
+    ROCM_CHECK(hipMemcpyAsync(h_tmp_founds, d_tmp_founds, len * sizeof(bool),
+                               hipMemcpyDeviceToHost, stream));
     for (int i = 0; i < len; i++) {
       if (h_tmp_founds[i]) contains_counter++;
     }
@@ -776,25 +776,25 @@ void CheckInsertAndEvictOnEpochLru(Table* table,
   ASSERT_EQ(table_size_verify1, table_size_after);
 
   size_t new_cap = table_size_after + filtered_len;
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_keys, d_tmp_keys,
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_keys, d_tmp_keys,
                              table_size_after * sizeof(K),
-                             cudaMemcpyDeviceToHost, stream));
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_values, d_tmp_values,
+                             hipMemcpyDeviceToHost, stream));
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_values, d_tmp_values,
                              table_size_after * dim * sizeof(V),
-                             cudaMemcpyDeviceToHost, stream));
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_scores, d_tmp_scores,
+                             hipMemcpyDeviceToHost, stream));
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_scores, d_tmp_scores,
                              table_size_after * sizeof(S),
-                             cudaMemcpyDeviceToHost, stream));
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_keys + table_size_after, evicted_keys,
-                             filtered_len * sizeof(K), cudaMemcpyDeviceToHost,
+                             hipMemcpyDeviceToHost, stream));
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_keys + table_size_after, evicted_keys,
+                             filtered_len * sizeof(K), hipMemcpyDeviceToHost,
                              stream));
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_values + table_size_after * dim,
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_values + table_size_after * dim,
                              evicted_values, filtered_len * dim * sizeof(V),
-                             cudaMemcpyDeviceToHost, stream));
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_scores + table_size_after, evicted_scores,
-                             filtered_len * sizeof(S), cudaMemcpyDeviceToHost,
+                             hipMemcpyDeviceToHost, stream));
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_scores + table_size_after, evicted_scores,
+                             filtered_len * sizeof(S), hipMemcpyDeviceToHost,
                              stream));
-  CUDA_CHECK(cudaStreamSynchronize(stream));
+  ROCM_CHECK(hipStreamSynchronize(stream));
   int64_t new_cap_i64 = (int64_t)new_cap;
 
   size_t key_miss_cnt = 0;
@@ -855,15 +855,15 @@ void CheckInsertAndEvictOnEpochLru(Table* table,
   ASSERT_EQ(score_error_cnt1, 0);
   ASSERT_EQ(score_error_cnt2, 0);
 
-  CUDA_CHECK(cudaFreeAsync(d_tmp_keys, stream));
-  CUDA_CHECK(cudaFreeAsync(d_tmp_values, stream));
-  CUDA_CHECK(cudaFreeAsync(d_tmp_scores, stream));
-  CUDA_CHECK(cudaFreeAsync(d_tmp_founds, stream));
+  ROCM_CHECK(hipFreeAsync(d_tmp_keys, stream));
+  ROCM_CHECK(hipFreeAsync(d_tmp_values, stream));
+  ROCM_CHECK(hipFreeAsync(d_tmp_scores, stream));
+  ROCM_CHECK(hipFreeAsync(d_tmp_founds, stream));
   free(h_tmp_keys);
   free(h_tmp_values);
   free(h_tmp_scores);
   free(h_tmp_founds);
-  CUDA_CHECK(cudaStreamSynchronize(stream));
+  ROCM_CHECK(hipStreamSynchronize(stream));
 }
 
 void test_insert_and_evict_advanced_on_epochlru() {
@@ -881,8 +881,8 @@ void test_insert_and_evict_advanced_on_epochlru() {
   using Table = nv::merlin::HashTable<i64, f32, u64, EvictStrategy::kEpochLru>;
   opt.dim = dim;
 
-  cudaStream_t stream;
-  CUDA_CHECK(cudaStreamCreate(&stream));
+  hipStream_t stream;
+  ROCM_CHECK(hipStreamCreate(&stream));
 
   std::unique_ptr<Table> table = std::make_unique<Table>();
   table->init(opt);
@@ -904,7 +904,7 @@ void test_insert_and_evict_advanced_on_epochlru() {
 
     CheckInsertAndEvictOnEpochLru<i64, f32, u64, Table>(
         table.get(), &data_buffer, &evict_buffer, B, stream, opt, global_epoch);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
 
     offset += B;
     score += 1;
@@ -916,7 +916,7 @@ void CheckInsertAndEvictOnEpochLfu(
     Table* table, test_util::KVMSBuffer<K, V, S>* data_buffer,
     test_util::KVMSBuffer<K, V, S>* evict_buffer,
     test_util::KVMSBuffer<K, V, S>* pre_data_buffer, size_t len,
-    cudaStream_t stream, TableOptions& opt, unsigned int global_epoch) {
+    hipStream_t stream, TableOptions& opt, unsigned int global_epoch) {
   std::map<K, test_util::ValueArray<V, dim>> values_map_before_insert;
   std::map<K, test_util::ValueArray<V, dim>> values_map_after_insert;
 
@@ -952,14 +952,14 @@ void CheckInsertAndEvictOnEpochLfu(
   size_t table_size_before = table->size(stream);
   size_t cap = table_size_before + len;
 
-  CUDA_CHECK(cudaMallocAsync(&d_tmp_keys, cap * sizeof(K), stream));
-  CUDA_CHECK(cudaMemsetAsync(d_tmp_keys, 0, cap * sizeof(K), stream));
-  CUDA_CHECK(cudaMallocAsync(&d_tmp_values, cap * dim * sizeof(V), stream));
-  CUDA_CHECK(cudaMemsetAsync(d_tmp_values, 0, cap * dim * sizeof(V), stream));
-  CUDA_CHECK(cudaMallocAsync(&d_tmp_scores, cap * sizeof(S), stream));
-  CUDA_CHECK(cudaMemsetAsync(d_tmp_scores, 0, cap * sizeof(S), stream));
-  CUDA_CHECK(cudaMallocAsync(&d_tmp_founds, cap * sizeof(bool), stream));
-  CUDA_CHECK(cudaMemsetAsync(d_tmp_founds, 0, cap * sizeof(bool), stream));
+  ROCM_CHECK(hipMallocAsync(&d_tmp_keys, cap * sizeof(K), stream));
+  ROCM_CHECK(hipMemsetAsync(d_tmp_keys, 0, cap * sizeof(K), stream));
+  ROCM_CHECK(hipMallocAsync(&d_tmp_values, cap * dim * sizeof(V), stream));
+  ROCM_CHECK(hipMemsetAsync(d_tmp_values, 0, cap * dim * sizeof(V), stream));
+  ROCM_CHECK(hipMallocAsync(&d_tmp_scores, cap * sizeof(S), stream));
+  ROCM_CHECK(hipMemsetAsync(d_tmp_scores, 0, cap * sizeof(S), stream));
+  ROCM_CHECK(hipMallocAsync(&d_tmp_founds, cap * sizeof(bool), stream));
+  ROCM_CHECK(hipMemsetAsync(d_tmp_founds, 0, cap * sizeof(bool), stream));
   h_tmp_keys = (K*)malloc(cap * sizeof(K));
   h_tmp_values = (V*)malloc(cap * dim * sizeof(V));
   h_tmp_scores = (S*)malloc(cap * sizeof(S));
@@ -969,24 +969,24 @@ void CheckInsertAndEvictOnEpochLfu(
       table->capacity(), 0, d_tmp_keys, d_tmp_values, d_tmp_scores, stream);
   ASSERT_EQ(table_size_before, table_size_verify0);
 
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_keys, d_tmp_keys,
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_keys, d_tmp_keys,
                              table_size_before * sizeof(K),
-                             cudaMemcpyDeviceToHost, stream));
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_values, d_tmp_values,
+                             hipMemcpyDeviceToHost, stream));
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_values, d_tmp_values,
                              table_size_before * dim * sizeof(V),
-                             cudaMemcpyDeviceToHost, stream));
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_scores, d_tmp_scores,
+                             hipMemcpyDeviceToHost, stream));
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_scores, d_tmp_scores,
                              table_size_before * sizeof(S),
-                             cudaMemcpyDeviceToHost, stream));
+                             hipMemcpyDeviceToHost, stream));
 
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_keys + table_size_before, keys,
-                             len * sizeof(K), cudaMemcpyDeviceToHost, stream));
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_values + table_size_before * dim, values,
-                             len * dim * sizeof(V), cudaMemcpyDeviceToHost,
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_keys + table_size_before, keys,
+                             len * sizeof(K), hipMemcpyDeviceToHost, stream));
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_values + table_size_before * dim, values,
+                             len * dim * sizeof(V), hipMemcpyDeviceToHost,
                              stream));
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_scores + table_size_before, scores,
-                             len * sizeof(S), cudaMemcpyDeviceToHost, stream));
-  CUDA_CHECK(cudaStreamSynchronize(stream));
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_scores + table_size_before, scores,
+                             len * sizeof(S), hipMemcpyDeviceToHost, stream));
+  ROCM_CHECK(hipStreamSynchronize(stream));
 
   for (size_t i = 0; i < cap; i++) {
     test_util::ValueArray<V, dim>* vec =
@@ -1009,17 +1009,17 @@ void CheckInsertAndEvictOnEpochLfu(
           : scores,
       evicted_keys, evicted_values, evicted_scores, stream);
   evict_buffer->SyncData(false, stream);
-  CUDA_CHECK(cudaStreamSynchronize(stream));
+  ROCM_CHECK(hipStreamSynchronize(stream));
   auto end = std::chrono::steady_clock::now();
   auto diff = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
 
   {
     table->find(len, pre_data_buffer->keys_ptr(), values, d_tmp_founds,
                 pre_data_buffer->scores_ptr(), stream);
-    CUDA_CHECK(cudaMemcpyAsync(h_tmp_founds, d_tmp_founds, len * sizeof(bool),
-                               cudaMemcpyDeviceToHost, stream));
+    ROCM_CHECK(hipMemcpyAsync(h_tmp_founds, d_tmp_founds, len * sizeof(bool),
+                               hipMemcpyDeviceToHost, stream));
     pre_data_buffer->SyncData(false);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
     size_t found_counter = 0;
     size_t old_epoch_counter = 0;
     size_t new_epoch_counter = 0;
@@ -1037,12 +1037,12 @@ void CheckInsertAndEvictOnEpochLfu(
               << ", pre_data miss counter:" << len - found_counter << std::endl;
     ASSERT_EQ(len, found_counter);
 
-    CUDA_CHECK(cudaMemset(d_tmp_founds, 0, len * sizeof(bool)));
+    ROCM_CHECK(hipMemset(d_tmp_founds, 0, len * sizeof(bool)));
     table->contains(len, pre_data_buffer->keys_ptr(), d_tmp_founds, stream);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
     int contains_counter = 0;
-    CUDA_CHECK(cudaMemcpyAsync(h_tmp_founds, d_tmp_founds, len * sizeof(bool),
-                               cudaMemcpyDeviceToHost, stream));
+    ROCM_CHECK(hipMemcpyAsync(h_tmp_founds, d_tmp_founds, len * sizeof(bool),
+                               hipMemcpyDeviceToHost, stream));
     for (int i = 0; i < len; i++) {
       if (h_tmp_founds[i]) contains_counter++;
     }
@@ -1051,10 +1051,10 @@ void CheckInsertAndEvictOnEpochLfu(
 
   {
     table->find(len, keys, values, d_tmp_founds, scores, stream);
-    CUDA_CHECK(cudaMemcpyAsync(h_tmp_founds, d_tmp_founds, len * sizeof(bool),
-                               cudaMemcpyDeviceToHost, stream));
+    ROCM_CHECK(hipMemcpyAsync(h_tmp_founds, d_tmp_founds, len * sizeof(bool),
+                               hipMemcpyDeviceToHost, stream));
     data_buffer->SyncData(false);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
     size_t found_counter = 0;
     size_t new_epoch_counter = 0;
     for (int i = 0; i < len; i++) {
@@ -1068,12 +1068,12 @@ void CheckInsertAndEvictOnEpochLfu(
               << ", miss counter:" << len - found_counter << std::endl;
     ASSERT_EQ(len, found_counter);
 
-    CUDA_CHECK(cudaMemset(d_tmp_founds, 0, len * sizeof(bool)));
+    ROCM_CHECK(hipMemset(d_tmp_founds, 0, len * sizeof(bool)));
     table->contains(len, keys, d_tmp_founds, stream);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
     int contains_counter = 0;
-    CUDA_CHECK(cudaMemcpyAsync(h_tmp_founds, d_tmp_founds, len * sizeof(bool),
-                               cudaMemcpyDeviceToHost, stream));
+    ROCM_CHECK(hipMemcpyAsync(h_tmp_founds, d_tmp_founds, len * sizeof(bool),
+                               hipMemcpyDeviceToHost, stream));
     for (int i = 0; i < len; i++) {
       if (h_tmp_founds[i]) contains_counter++;
     }
@@ -1104,25 +1104,25 @@ void CheckInsertAndEvictOnEpochLfu(
   ASSERT_EQ(table_size_verify1, table_size_after);
 
   size_t new_cap = table_size_after + filtered_len;
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_keys, d_tmp_keys,
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_keys, d_tmp_keys,
                              table_size_after * sizeof(K),
-                             cudaMemcpyDeviceToHost, stream));
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_values, d_tmp_values,
+                             hipMemcpyDeviceToHost, stream));
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_values, d_tmp_values,
                              table_size_after * dim * sizeof(V),
-                             cudaMemcpyDeviceToHost, stream));
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_scores, d_tmp_scores,
+                             hipMemcpyDeviceToHost, stream));
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_scores, d_tmp_scores,
                              table_size_after * sizeof(S),
-                             cudaMemcpyDeviceToHost, stream));
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_keys + table_size_after, evicted_keys,
-                             filtered_len * sizeof(K), cudaMemcpyDeviceToHost,
+                             hipMemcpyDeviceToHost, stream));
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_keys + table_size_after, evicted_keys,
+                             filtered_len * sizeof(K), hipMemcpyDeviceToHost,
                              stream));
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_values + table_size_after * dim,
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_values + table_size_after * dim,
                              evicted_values, filtered_len * dim * sizeof(V),
-                             cudaMemcpyDeviceToHost, stream));
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_scores + table_size_after, evicted_scores,
-                             filtered_len * sizeof(S), cudaMemcpyDeviceToHost,
+                             hipMemcpyDeviceToHost, stream));
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_scores + table_size_after, evicted_scores,
+                             filtered_len * sizeof(S), hipMemcpyDeviceToHost,
                              stream));
-  CUDA_CHECK(cudaStreamSynchronize(stream));
+  ROCM_CHECK(hipStreamSynchronize(stream));
   int64_t new_cap_i64 = (int64_t)new_cap;
 
   size_t key_miss_cnt = 0;
@@ -1190,15 +1190,15 @@ void CheckInsertAndEvictOnEpochLfu(
   ASSERT_EQ(score_error_cnt1, 0);
   ASSERT_EQ(score_error_cnt2, 0);
 
-  CUDA_CHECK(cudaFreeAsync(d_tmp_keys, stream));
-  CUDA_CHECK(cudaFreeAsync(d_tmp_values, stream));
-  CUDA_CHECK(cudaFreeAsync(d_tmp_scores, stream));
-  CUDA_CHECK(cudaFreeAsync(d_tmp_founds, stream));
+  ROCM_CHECK(hipFreeAsync(d_tmp_keys, stream));
+  ROCM_CHECK(hipFreeAsync(d_tmp_values, stream));
+  ROCM_CHECK(hipFreeAsync(d_tmp_scores, stream));
+  ROCM_CHECK(hipFreeAsync(d_tmp_founds, stream));
   free(h_tmp_keys);
   free(h_tmp_values);
   free(h_tmp_scores);
   free(h_tmp_founds);
-  CUDA_CHECK(cudaStreamSynchronize(stream));
+  ROCM_CHECK(hipStreamSynchronize(stream));
 }
 
 void test_insert_and_evict_advanced_on_epochlfu() {
@@ -1216,8 +1216,8 @@ void test_insert_and_evict_advanced_on_epochlfu() {
   using Table = nv::merlin::HashTable<i64, f32, u64, EvictStrategy::kEpochLfu>;
   opt.dim = dim;
 
-  cudaStream_t stream;
-  CUDA_CHECK(cudaStreamCreate(&stream));
+  hipStream_t stream;
+  ROCM_CHECK(hipStreamCreate(&stream));
 
   std::unique_ptr<Table> table = std::make_unique<Table>();
   table->init(opt);
@@ -1255,7 +1255,7 @@ void test_insert_and_evict_advanced_on_epochlfu() {
         opt, global_epoch);
 
     pre_data_buffer.CopyFrom(data_buffer, stream);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
 
     offset += B;
   }
@@ -1277,8 +1277,8 @@ void test_insert_and_evict_advanced_on_customized() {
       nv::merlin::HashTable<i64, f32, u64, EvictStrategy::kCustomized>;
   opt.dim = dim;
 
-  cudaStream_t stream;
-  CUDA_CHECK(cudaStreamCreate(&stream));
+  hipStream_t stream;
+  ROCM_CHECK(hipStreamCreate(&stream));
 
   std::unique_ptr<Table> table = std::make_unique<Table>();
   table->init(opt);
@@ -1325,8 +1325,8 @@ void test_insert_and_evict_with_export_batch() {
 
   using Vec_t = test_util::ValueArray<f32, dim>;
   std::map<i64, Vec_t> ref_map;
-  cudaStream_t stream;
-  CUDA_CHECK(cudaStreamCreate(&stream));
+  hipStream_t stream;
+  ROCM_CHECK(hipStreamCreate(&stream));
 
   std::unique_ptr<Table> table = std::make_unique<Table>();
   table->init(opt);
@@ -1345,7 +1345,7 @@ void test_insert_and_evict_with_export_batch() {
   offset += len;
   total_len += len;
   evict_buffer.SyncData(/*h2d=*/false, stream);
-  CUDA_CHECK(cudaStreamSynchronize(stream));
+  ROCM_CHECK(hipStreamSynchronize(stream));
   for (size_t i = 0; i < n_evicted; i++) {
     Vec_t* vec =
         reinterpret_cast<Vec_t*>(evict_buffer.values_ptr(false) + i * dim);
@@ -1362,7 +1362,7 @@ void test_insert_and_evict_with_export_batch() {
         table->export_batch(search_len, offset, buffer.keys_ptr(),
                             buffer.values_ptr(), /*scores=*/nullptr, stream);
     buffer.SyncData(/*h2d=*/false);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
     for (size_t i = 0; i < n_exported; i++) {
       Vec_t* vec = reinterpret_cast<Vec_t*>(buffer.values_ptr(false) + i * dim);
       for (size_t j = 0; j < dim; j++) {
@@ -1384,7 +1384,7 @@ void BatchCheckInsertAndEvict(Table* table, K* keys, V* values, S* scores,
                               K* evicted_keys, V* evicted_values,
                               S* evicted_scores, size_t len,
                               std::atomic<int>* step, size_t total_step,
-                              cudaStream_t stream, bool if_check = true) {
+                              hipStream_t stream, bool if_check = true) {
   std::map<i64, test_util::ValueArray<f32, dim>> map_before_insert;
   std::map<i64, test_util::ValueArray<f32, dim>> map_after_insert;
 
@@ -1407,44 +1407,44 @@ void BatchCheckInsertAndEvict(Table* table, K* keys, V* values, S* scores,
     int s = step->load();
 
     if (if_check) {
-      CUDA_CHECK(cudaMallocAsync(&d_tmp_keys, cap * sizeof(K), stream));
-      CUDA_CHECK(cudaMallocAsync(&d_tmp_values, cap * dim * sizeof(V), stream));
-      CUDA_CHECK(cudaMallocAsync(&d_tmp_scores, cap * sizeof(S), stream));
-      CUDA_CHECK(cudaStreamSynchronize(stream));
+      ROCM_CHECK(hipMallocAsync(&d_tmp_keys, cap * sizeof(K), stream));
+      ROCM_CHECK(hipMallocAsync(&d_tmp_values, cap * dim * sizeof(V), stream));
+      ROCM_CHECK(hipMallocAsync(&d_tmp_scores, cap * sizeof(S), stream));
+      ROCM_CHECK(hipStreamSynchronize(stream));
 
       h_tmp_keys = (K*)malloc(cap * sizeof(K));
       h_tmp_values = (V*)malloc(cap * dim * sizeof(V));
       h_tmp_scores = (S*)malloc(cap * sizeof(S));
 
-      CUDA_CHECK(cudaMemsetAsync(d_tmp_keys, 0, cap * sizeof(K), stream));
-      CUDA_CHECK(
-          cudaMemsetAsync(d_tmp_values, 0, cap * dim * sizeof(V), stream));
-      CUDA_CHECK(cudaMemsetAsync(d_tmp_scores, 0, cap * sizeof(S), stream));
+      ROCM_CHECK(hipMemsetAsync(d_tmp_keys, 0, cap * sizeof(K), stream));
+      ROCM_CHECK(
+          hipMemsetAsync(d_tmp_values, 0, cap * dim * sizeof(V), stream));
+      ROCM_CHECK(hipMemsetAsync(d_tmp_scores, 0, cap * sizeof(S), stream));
 
       size_t table_size_verify0 = table->export_batch(
           table->capacity(), 0, d_tmp_keys, d_tmp_values, d_tmp_scores, stream);
       ASSERT_EQ(table_size_before, table_size_verify0);
 
-      CUDA_CHECK(cudaMemcpyAsync(h_tmp_keys, d_tmp_keys,
+      ROCM_CHECK(hipMemcpyAsync(h_tmp_keys, d_tmp_keys,
                                  table_size_before * sizeof(K),
-                                 cudaMemcpyDeviceToHost, stream));
-      CUDA_CHECK(cudaMemcpyAsync(h_tmp_values, d_tmp_values,
+                                 hipMemcpyDeviceToHost, stream));
+      ROCM_CHECK(hipMemcpyAsync(h_tmp_values, d_tmp_values,
                                  table_size_before * dim * sizeof(V),
-                                 cudaMemcpyDeviceToHost, stream));
-      CUDA_CHECK(cudaMemcpyAsync(h_tmp_scores, d_tmp_scores,
+                                 hipMemcpyDeviceToHost, stream));
+      ROCM_CHECK(hipMemcpyAsync(h_tmp_scores, d_tmp_scores,
                                  table_size_before * sizeof(S),
-                                 cudaMemcpyDeviceToHost, stream));
+                                 hipMemcpyDeviceToHost, stream));
 
-      CUDA_CHECK(cudaMemcpyAsync(h_tmp_keys + table_size_before, keys + len * s,
-                                 len * sizeof(K), cudaMemcpyDeviceToHost,
+      ROCM_CHECK(hipMemcpyAsync(h_tmp_keys + table_size_before, keys + len * s,
+                                 len * sizeof(K), hipMemcpyDeviceToHost,
                                  stream));
-      CUDA_CHECK(cudaMemcpyAsync(h_tmp_values + table_size_before * dim,
+      ROCM_CHECK(hipMemcpyAsync(h_tmp_values + table_size_before * dim,
                                  values + len * s * dim, len * dim * sizeof(V),
-                                 cudaMemcpyDeviceToHost, stream));
-      CUDA_CHECK(cudaMemcpyAsync(h_tmp_scores + table_size_before,
+                                 hipMemcpyDeviceToHost, stream));
+      ROCM_CHECK(hipMemcpyAsync(h_tmp_scores + table_size_before,
                                  scores + len * s, len * sizeof(S),
-                                 cudaMemcpyDeviceToHost, stream));
-      CUDA_CHECK(cudaStreamSynchronize(stream));
+                                 hipMemcpyDeviceToHost, stream));
+      ROCM_CHECK(hipStreamSynchronize(stream));
 
       for (size_t i = 0; i < cap; i++) {
         test_util::ValueArray<V, dim>* vec =
@@ -1453,12 +1453,12 @@ void BatchCheckInsertAndEvict(Table* table, K* keys, V* values, S* scores,
         map_before_insert[h_tmp_keys[i]] = *vec;
       }
     }
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
     auto start = std::chrono::steady_clock::now();
     size_t filtered_len = table->insert_and_evict(
         len, keys + len * s, values + len * s * dim, nullptr, evicted_keys,
         evicted_values, evicted_scores, stream);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
     auto end = std::chrono::steady_clock::now();
     auto diff =
         std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
@@ -1473,25 +1473,25 @@ void BatchCheckInsertAndEvict(Table* table, K* keys, V* values, S* scores,
       ASSERT_EQ(table_size_verify1, table_size_after);
 
       size_t new_cap = table_size_after + filtered_len;
-      CUDA_CHECK(cudaMemcpyAsync(h_tmp_keys, d_tmp_keys,
+      ROCM_CHECK(hipMemcpyAsync(h_tmp_keys, d_tmp_keys,
                                  table_size_after * sizeof(K),
-                                 cudaMemcpyDeviceToHost, stream));
-      CUDA_CHECK(cudaMemcpyAsync(h_tmp_values, d_tmp_values,
+                                 hipMemcpyDeviceToHost, stream));
+      ROCM_CHECK(hipMemcpyAsync(h_tmp_values, d_tmp_values,
                                  table_size_after * dim * sizeof(V),
-                                 cudaMemcpyDeviceToHost, stream));
-      CUDA_CHECK(cudaMemcpyAsync(h_tmp_scores, d_tmp_scores,
+                                 hipMemcpyDeviceToHost, stream));
+      ROCM_CHECK(hipMemcpyAsync(h_tmp_scores, d_tmp_scores,
                                  table_size_after * sizeof(S),
-                                 cudaMemcpyDeviceToHost, stream));
-      CUDA_CHECK(cudaMemcpyAsync(h_tmp_keys + table_size_after, evicted_keys,
+                                 hipMemcpyDeviceToHost, stream));
+      ROCM_CHECK(hipMemcpyAsync(h_tmp_keys + table_size_after, evicted_keys,
                                  filtered_len * sizeof(K),
-                                 cudaMemcpyDeviceToHost, stream));
-      CUDA_CHECK(cudaMemcpyAsync(h_tmp_values + table_size_after * dim,
+                                 hipMemcpyDeviceToHost, stream));
+      ROCM_CHECK(hipMemcpyAsync(h_tmp_values + table_size_after * dim,
                                  evicted_values, filtered_len * dim * sizeof(V),
-                                 cudaMemcpyDeviceToHost, stream));
-      CUDA_CHECK(cudaMemcpyAsync(h_tmp_scores + table_size_after,
+                                 hipMemcpyDeviceToHost, stream));
+      ROCM_CHECK(hipMemcpyAsync(h_tmp_scores + table_size_after,
                                  evicted_scores, filtered_len * sizeof(S),
-                                 cudaMemcpyDeviceToHost, stream));
-      CUDA_CHECK(cudaStreamSynchronize(stream));
+                                 hipMemcpyDeviceToHost, stream));
+      ROCM_CHECK(hipStreamSynchronize(stream));
       int64_t new_cap_i64 = (int64_t)new_cap;
       for (int64_t i = new_cap_i64 - 1; i >= 0; i--) {
         test_util::ValueArray<V, dim>* vec =
@@ -1517,13 +1517,13 @@ void BatchCheckInsertAndEvict(Table* table, K* keys, V* values, S* scores,
       ASSERT_EQ(key_miss_cnt, 0);
       ASSERT_EQ(value_diff_cnt, 0);
 
-      CUDA_CHECK(cudaFreeAsync(d_tmp_keys, stream));
-      CUDA_CHECK(cudaFreeAsync(d_tmp_values, stream));
-      CUDA_CHECK(cudaFreeAsync(d_tmp_scores, stream));
+      ROCM_CHECK(hipFreeAsync(d_tmp_keys, stream));
+      ROCM_CHECK(hipFreeAsync(d_tmp_values, stream));
+      ROCM_CHECK(hipFreeAsync(d_tmp_scores, stream));
       free(h_tmp_keys);
       free(h_tmp_values);
       free(h_tmp_scores);
-      CUDA_CHECK(cudaStreamSynchronize(stream));
+      ROCM_CHECK(hipStreamSynchronize(stream));
     }
 
     std::cout << "Check insert behavior got step: " << step->load()
@@ -1540,7 +1540,7 @@ void BatchCheckInsertAndEvict(Table* table, K* keys, V* values, S* scores,
 template <typename K, typename V, typename S, typename Table>
 void BatchCheckFind(Table* table, K* keys, V* values, S* scores, size_t len,
                     std::atomic<int>* step, size_t total_step,
-                    size_t find_interval, cudaStream_t stream,
+                    size_t find_interval, hipStream_t stream,
                     bool if_check = true) {
   K* h_tmp_keys = nullptr;
   V* h_tmp_values = nullptr;
@@ -1555,11 +1555,11 @@ void BatchCheckFind(Table* table, K* keys, V* values, S* scores, size_t len,
   int find_step = 0;
   size_t cap = len * find_interval;
 
-  CUDA_CHECK(cudaMallocAsync(&d_tmp_keys, cap * sizeof(K), stream));
-  CUDA_CHECK(cudaMallocAsync(&d_tmp_values, cap * dim * sizeof(V), stream));
-  CUDA_CHECK(cudaMallocAsync(&d_tmp_scores, cap * sizeof(S), stream));
-  CUDA_CHECK(cudaMallocAsync(&d_tmp_founds, cap * sizeof(bool), stream));
-  CUDA_CHECK(cudaStreamSynchronize(stream));
+  ROCM_CHECK(hipMallocAsync(&d_tmp_keys, cap * sizeof(K), stream));
+  ROCM_CHECK(hipMallocAsync(&d_tmp_values, cap * dim * sizeof(V), stream));
+  ROCM_CHECK(hipMallocAsync(&d_tmp_scores, cap * sizeof(S), stream));
+  ROCM_CHECK(hipMallocAsync(&d_tmp_founds, cap * sizeof(bool), stream));
+  ROCM_CHECK(hipStreamSynchronize(stream));
 
   h_tmp_keys = (K*)malloc(cap * sizeof(K));
   h_tmp_values = (V*)malloc(cap * dim * sizeof(V));
@@ -1572,21 +1572,21 @@ void BatchCheckFind(Table* table, K* keys, V* values, S* scores, size_t len,
     size_t found_num = 0;
     size_t value_diff_cnt = 0;
 
-    CUDA_CHECK(cudaMemsetAsync(d_tmp_keys, 0, cap * sizeof(K), stream));
-    CUDA_CHECK(cudaMemsetAsync(d_tmp_values, 0, cap * dim * sizeof(V), stream));
-    CUDA_CHECK(cudaMemsetAsync(d_tmp_scores, 0, cap * sizeof(S), stream));
-    CUDA_CHECK(cudaMemsetAsync(d_tmp_founds, 0, cap * sizeof(bool), stream));
+    ROCM_CHECK(hipMemsetAsync(d_tmp_keys, 0, cap * sizeof(K), stream));
+    ROCM_CHECK(hipMemsetAsync(d_tmp_values, 0, cap * dim * sizeof(V), stream));
+    ROCM_CHECK(hipMemsetAsync(d_tmp_scores, 0, cap * sizeof(S), stream));
+    ROCM_CHECK(hipMemsetAsync(d_tmp_founds, 0, cap * sizeof(bool), stream));
 
-    CUDA_CHECK(cudaMemcpyAsync(d_tmp_keys, keys + cap * find_step,
-                               cap * sizeof(K), cudaMemcpyDeviceToDevice,
+    ROCM_CHECK(hipMemcpyAsync(d_tmp_keys, keys + cap * find_step,
+                               cap * sizeof(K), hipMemcpyDeviceToDevice,
                                stream));
 
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
 
     auto start = std::chrono::steady_clock::now();
     table->find(cap, d_tmp_keys, d_tmp_values, d_tmp_founds, d_tmp_scores,
                 stream);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
     auto end = std::chrono::steady_clock::now();
     auto diff =
         std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
@@ -1594,17 +1594,17 @@ void BatchCheckFind(Table* table, K* keys, V* values, S* scores, size_t len,
     float dur = diff.count();
 
     if (if_check) {
-      CUDA_CHECK(cudaMemcpyAsync(h_tmp_keys, d_tmp_keys, cap * sizeof(K),
-                                 cudaMemcpyDeviceToHost, stream));
-      CUDA_CHECK(cudaMemcpyAsync(h_tmp_values, d_tmp_values,
-                                 cap * dim * sizeof(V), cudaMemcpyDeviceToHost,
+      ROCM_CHECK(hipMemcpyAsync(h_tmp_keys, d_tmp_keys, cap * sizeof(K),
+                                 hipMemcpyDeviceToHost, stream));
+      ROCM_CHECK(hipMemcpyAsync(h_tmp_values, d_tmp_values,
+                                 cap * dim * sizeof(V), hipMemcpyDeviceToHost,
                                  stream));
-      CUDA_CHECK(cudaMemcpyAsync(h_tmp_scores, d_tmp_scores, cap * sizeof(S),
-                                 cudaMemcpyDeviceToHost, stream));
-      CUDA_CHECK(cudaMemcpyAsync(h_tmp_founds, d_tmp_founds, cap * sizeof(bool),
-                                 cudaMemcpyDeviceToHost, stream));
+      ROCM_CHECK(hipMemcpyAsync(h_tmp_scores, d_tmp_scores, cap * sizeof(S),
+                                 hipMemcpyDeviceToHost, stream));
+      ROCM_CHECK(hipMemcpyAsync(h_tmp_founds, d_tmp_founds, cap * sizeof(bool),
+                                 hipMemcpyDeviceToHost, stream));
 
-      CUDA_CHECK(cudaStreamSynchronize(stream));
+      ROCM_CHECK(hipStreamSynchronize(stream));
 
       for (int i = 0; i < cap; i++) {
         if (h_tmp_founds[i]) {
@@ -1619,12 +1619,12 @@ void BatchCheckFind(Table* table, K* keys, V* values, S* scores, size_t len,
       }
       ASSERT_EQ(value_diff_cnt, 0);
 
-      CUDA_CHECK(cudaMemset(d_tmp_founds, 0, cap * sizeof(bool)));
+      ROCM_CHECK(hipMemset(d_tmp_founds, 0, cap * sizeof(bool)));
       table->contains(cap, keys, d_tmp_founds, stream);
-      CUDA_CHECK(cudaStreamSynchronize(stream));
+      ROCM_CHECK(hipStreamSynchronize(stream));
       int contains_num = 0;
-      CUDA_CHECK(cudaMemcpyAsync(h_tmp_founds, d_tmp_founds, cap * sizeof(bool),
-                                 cudaMemcpyDeviceToHost, stream));
+      ROCM_CHECK(hipMemcpyAsync(h_tmp_founds, d_tmp_founds, cap * sizeof(bool),
+                                 hipMemcpyDeviceToHost, stream));
       for (int i = 0; i < cap; i++) {
         if (h_tmp_founds[i]) contains_num++;
       }
@@ -1639,16 +1639,16 @@ void BatchCheckFind(Table* table, K* keys, V* values, S* scores, size_t len,
     ASSERT_EQ(value_diff_cnt, 0);
     find_step++;
   }
-  CUDA_CHECK(cudaFreeAsync(d_tmp_keys, stream));
-  CUDA_CHECK(cudaFreeAsync(d_tmp_values, stream));
-  CUDA_CHECK(cudaFreeAsync(d_tmp_scores, stream));
-  CUDA_CHECK(cudaFreeAsync(d_tmp_founds, stream));
+  ROCM_CHECK(hipFreeAsync(d_tmp_keys, stream));
+  ROCM_CHECK(hipFreeAsync(d_tmp_values, stream));
+  ROCM_CHECK(hipFreeAsync(d_tmp_scores, stream));
+  ROCM_CHECK(hipFreeAsync(d_tmp_founds, stream));
   free(h_tmp_keys);
   free(h_tmp_values);
   free(h_tmp_scores);
   free(h_tmp_founds);
 
-  CUDA_CHECK(cudaStreamSynchronize(stream));
+  ROCM_CHECK(hipStreamSynchronize(stream));
 }
 
 void test_insert_and_evict_run_with_batch_find() {
@@ -1673,10 +1673,10 @@ void test_insert_and_evict_run_with_batch_find() {
   using Table = nv::merlin::HashTable<i64, f32, u64, EvictStrategy::kLru>;
   opt.dim = dim;
 
-  cudaStream_t insert_stream;
-  cudaStream_t find_stream;
-  CUDA_CHECK(cudaStreamCreate(&insert_stream));
-  CUDA_CHECK(cudaStreamCreate(&find_stream));
+  hipStream_t insert_stream;
+  hipStream_t find_stream;
+  ROCM_CHECK(hipStreamCreate(&insert_stream));
+  ROCM_CHECK(hipStreamCreate(&find_stream));
 
   std::unique_ptr<Table> table = std::make_unique<Table>();
   table->init(opt);
@@ -1695,7 +1695,7 @@ void test_insert_and_evict_run_with_batch_find() {
         global_buffer.values_ptr(false) + B * i * dim, (int)B);
   }
   global_buffer.SyncData(true, insert_stream);
-  CUDA_CHECK(cudaStreamSynchronize(insert_stream));
+  ROCM_CHECK(hipStreamSynchronize(insert_stream));
 
   auto insert_and_evict_func = [&table, &global_buffer, &evict_buffer, &B,
                                 &step, &batch_num, &insert_stream]() {
@@ -1718,8 +1718,8 @@ void test_insert_and_evict_run_with_batch_find() {
   insert_and_evict_thread = std::thread(insert_and_evict_func);
   find_thread.join();
   insert_and_evict_thread.join();
-  CUDA_CHECK(cudaStreamDestroy(insert_stream));
-  CUDA_CHECK(cudaStreamDestroy(find_stream));
+  ROCM_CHECK(hipStreamDestroy(insert_stream));
+  ROCM_CHECK(hipStreamDestroy(find_stream));
 }
 
 TEST(InsertAndEvictTest, test_insert_and_evict_basic) {

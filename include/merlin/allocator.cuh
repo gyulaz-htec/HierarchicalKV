@@ -46,15 +46,15 @@ class BaseAllocator {
   virtual ~BaseAllocator() = default;
 
   virtual void alloc(const MemoryType type, void** ptr, size_t size,
-                     unsigned int pinned_flags = cudaHostAllocDefault) = 0;
+                     unsigned int pinned_flags = hipHostMallocDefault) = 0;
 
   virtual void alloc_async(const MemoryType type, void** ptr, size_t size,
-                           cudaStream_t stream) = 0;
+                           hipStream_t stream) = 0;
 
   virtual void free(const MemoryType type, void* ptr) = 0;
 
   virtual void free_async(const MemoryType type, void* ptr,
-                          cudaStream_t stream) = 0;
+                          hipStream_t stream) = 0;
 };
 
 class DefaultAllocator : public virtual BaseAllocator {
@@ -63,13 +63,13 @@ class DefaultAllocator : public virtual BaseAllocator {
   ~DefaultAllocator() override{};
 
   void alloc(const MemoryType type, void** ptr, size_t size,
-             unsigned int pinned_flags = cudaHostAllocDefault) override {
+             unsigned int pinned_flags = hipHostMallocDefault) override {
     switch (type) {
       case MemoryType::Device:
-        CUDA_CHECK(cudaMalloc(ptr, size));
+        ROCM_CHECK(hipMalloc(ptr, size));
         break;
       case MemoryType::Pinned:
-        CUDA_CHECK(cudaMallocHost(ptr, size, pinned_flags));
+        ROCM_CHECK(hipHostMalloc(ptr, size, pinned_flags));
         break;
       case MemoryType::Host:
         *ptr = std::malloc(size);
@@ -79,9 +79,9 @@ class DefaultAllocator : public virtual BaseAllocator {
   }
 
   void alloc_async(const MemoryType type, void** ptr, size_t size,
-                   cudaStream_t stream) override {
+                   hipStream_t stream) override {
     if (type == MemoryType::Device) {
-      CUDA_CHECK(cudaMallocAsync(ptr, size, stream));
+      ROCM_CHECK(hipMallocAsync(ptr, size, stream));
     } else {
       MERLIN_CHECK(false,
                    "[DefaultAllocator] alloc_async is only support for "
@@ -96,10 +96,10 @@ class DefaultAllocator : public virtual BaseAllocator {
     }
     switch (type) {
       case MemoryType::Pinned:
-        CUDA_CHECK(cudaFreeHost(ptr));
+        ROCM_CHECK(hipHostFree(ptr));
         break;
       case MemoryType::Device:
-        CUDA_CHECK(cudaFree(ptr));
+        ROCM_CHECK(hipFree(ptr));
         break;
       case MemoryType::Host:
         std::free(ptr);
@@ -109,13 +109,13 @@ class DefaultAllocator : public virtual BaseAllocator {
   }
 
   void free_async(const MemoryType type, void* ptr,
-                  cudaStream_t stream) override {
+                  hipStream_t stream) override {
     if (ptr == nullptr) {
       return;
     }
 
     if (type == MemoryType::Device) {
-      CUDA_CHECK(cudaFreeAsync(ptr, stream));
+      ROCM_CHECK(hipFreeAsync(ptr, stream));
     } else {
       MERLIN_CHECK(false,
                    "[DefaultAllocator] free_async is only support for "

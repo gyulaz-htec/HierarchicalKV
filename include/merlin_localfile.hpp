@@ -36,7 +36,7 @@ namespace merlin {
  *
  * @tparam K The data type of the key.
  * @tparam V The data type of the vector's elements.
- *         The item data type should be a basic data type of C++/CUDA.
+ *         The item data type should be a basic data type of C++/ROCM.
  * @tparam S The data type for `score`.
  *           The currently supported data type is only `uint64_t`.
  *

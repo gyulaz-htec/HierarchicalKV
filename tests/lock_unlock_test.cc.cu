@@ -46,13 +46,13 @@ void test_lock_and_unlock() {
       nv::merlin::HashTable<i64, f32, u64, EvictStrategy::kCustomized>;
   opt.dim = dim;
 
-  cudaStream_t stream;
-  CUDA_CHECK(cudaStreamCreate(&stream));
+  hipStream_t stream;
+  ROCM_CHECK(hipStreamCreate(&stream));
   bool *d_found, *d_lock_results;
   i64** lock_keys_ptr;
-  CUDA_CHECK(cudaMalloc(&d_found, M * sizeof(bool)));
-  CUDA_CHECK(cudaMalloc(&d_lock_results, M * sizeof(bool)));
-  CUDA_CHECK(cudaMalloc(&lock_keys_ptr, M * sizeof(i64*)));
+  ROCM_CHECK(hipMalloc(&d_found, M * sizeof(bool)));
+  ROCM_CHECK(hipMalloc(&d_lock_results, M * sizeof(bool)));
+  ROCM_CHECK(hipMalloc(&lock_keys_ptr, M * sizeof(i64*)));
 
   // step1
   std::unique_ptr<Table> table = std::make_unique<Table>();
@@ -70,8 +70,8 @@ void test_lock_and_unlock() {
     table->insert_or_assign(M, buffer.keys_ptr(), buffer.values_ptr(),
                             buffer.scores_ptr(), stream);
 
-    CUDA_CHECK(cudaMemsetAsync(d_found, 0, M * sizeof(bool), stream));
-    CUDA_CHECK(cudaMemsetAsync(d_lock_results, 0, M * sizeof(bool), stream));
+    ROCM_CHECK(hipMemsetAsync(d_found, 0, M * sizeof(bool), stream));
+    ROCM_CHECK(hipMemsetAsync(d_lock_results, 0, M * sizeof(bool), stream));
     table->contains(M, buffer.keys_ptr(), d_found, stream);
     table->lock_keys(M, buffer.keys_ptr(), lock_keys_ptr, d_lock_results,
                      stream, buffer.scores_ptr());
@@ -80,13 +80,13 @@ void test_lock_and_unlock() {
     result = test_util::allTrueGpu(d_found, M, stream);
     ASSERT_EQ(result, true);
 
-    CUDA_CHECK(cudaMemsetAsync(d_found, 0, M * sizeof(bool), stream));
-    CUDA_CHECK(cudaMemsetAsync(d_lock_results, 0, M * sizeof(bool), stream));
+    ROCM_CHECK(hipMemsetAsync(d_found, 0, M * sizeof(bool), stream));
+    ROCM_CHECK(hipMemsetAsync(d_lock_results, 0, M * sizeof(bool), stream));
     table->contains(M, buffer.keys_ptr(), d_found, stream);
     result = test_util::allEqualGpu(d_found, d_lock_results, M, stream);
     ASSERT_EQ(result, true);
 
-    CUDA_CHECK(cudaMemsetAsync(d_found, 0, M * sizeof(bool), stream));
+    ROCM_CHECK(hipMemsetAsync(d_found, 0, M * sizeof(bool), stream));
     table->unlock_keys(M, lock_keys_ptr, buffer.keys_ptr(), d_lock_results,
                        stream);
     table->contains(M, buffer.keys_ptr(), d_found, stream);
@@ -96,9 +96,9 @@ void test_lock_and_unlock() {
     ASSERT_EQ(result, true);
   }
 
-  CUDA_CHECK(cudaFree(d_found));
-  CUDA_CHECK(cudaFree(d_lock_results));
-  CUDA_CHECK(cudaFree(lock_keys_ptr));
+  ROCM_CHECK(hipFree(d_found));
+  ROCM_CHECK(hipFree(d_lock_results));
+  ROCM_CHECK(hipFree(lock_keys_ptr));
 }
 
 TEST(LockAndUnlockTest, test_lock_and_unlock) { test_lock_and_unlock(); }

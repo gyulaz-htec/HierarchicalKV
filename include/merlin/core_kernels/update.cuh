@@ -1,3 +1,5 @@
+#include "hip/hip_runtime.h"
+#include "hip/hip_runtime.h"
 /*
  * Copyright (c) 2023, NVIDIA CORPORATION.
  *
@@ -86,7 +88,7 @@ __global__ void tlp_update_kernel_with_io(
       cmp_result &= 0x01010101;
       do {
         if (cmp_result == 0) break;
-        // CUDA uses little endian,
+        // ROCM uses little endian,
         // and the lowest byte in register stores in the lowest address.
         uint32_t index = (__ffs(cmp_result) - 1) >> 3;
         cmp_result &= (cmp_result - 1);
@@ -96,7 +98,7 @@ __global__ void tlp_update_kernel_with_io(
         // Modifications to the bucket will not before this instruction.
         result = current_key->compare_exchange_strong(
             expected_key, static_cast<K>(LOCKED_KEY),
-            cuda::std::memory_order_acquire, cuda::std::memory_order_relaxed);
+            hip::std::memory_order_acquire, hip::std::memory_order_relaxed);
       } while (!result);
       if (result) {
         occupy_result = OccupyResult::DUPLICATE;
@@ -110,7 +112,7 @@ __global__ void tlp_update_kernel_with_io(
         auto key_address = BUCKET::keys(bucket_keys_ptr, key_pos);
         // memory_order_release:
         // Modifications to the bucket will not after this instruction.
-        key_address->store(key, cuda::std::memory_order_release);
+        key_address->store(key, hip::std::memory_order_release);
         return;
       }
       VecD_Comp empty_digests_ = empty_digests<K>();
@@ -123,7 +125,7 @@ __global__ void tlp_update_kernel_with_io(
         possible_pos = pos_cur + i * 4 + index;
         if (offset == 0 && possible_pos < key_pos) continue;
         auto current_key = BUCKET::keys(bucket_keys_ptr, possible_pos);
-        auto probe_key = current_key->load(cuda::std::memory_order_relaxed);
+        auto probe_key = current_key->load(hip::std::memory_order_relaxed);
         if (probe_key == static_cast<K>(EMPTY_KEY)) {
           return;
         }
@@ -321,13 +323,13 @@ __global__ void pipeline_update_kernel_with_io(
           if (diff_buf(i) == 0) {
             CAS_res[0] = key_ptr->compare_exchange_strong(
                 possible_key, static_cast<K>(LOCKED_KEY),
-                cuda::std::memory_order_acquire,
-                cuda::std::memory_order_relaxed);
+                hip::std::memory_order_acquire,
+                hip::std::memory_order_relaxed);
           } else {
             CAS_res[1] = key_ptr->compare_exchange_strong(
                 possible_key, static_cast<K>(LOCKED_KEY),
-                cuda::std::memory_order_acquire,
-                cuda::std::memory_order_relaxed);
+                hip::std::memory_order_acquire,
+                hip::std::memory_order_relaxed);
           }
         }
       }
@@ -370,7 +372,7 @@ __global__ void pipeline_update_kernel_with_io(
                                             global_epoch);
         if (rank == 0) {
           auto key_address = BUCKET::keys(keys_ptr, target_pos);
-          key_address->store(target_key, cuda::std::memory_order_release);
+          key_address->store(target_key, hip::std::memory_order_release);
         }
       }
     }
@@ -403,11 +405,11 @@ __global__ void pipeline_update_kernel_with_io(
         if (diff_buf(loop_num) == 0) {
           CAS_res[0] = key_ptr->compare_exchange_strong(
               possible_key, static_cast<K>(LOCKED_KEY),
-              cuda::std::memory_order_acquire, cuda::std::memory_order_relaxed);
+              hip::std::memory_order_acquire, hip::std::memory_order_relaxed);
         } else {
           CAS_res[1] = key_ptr->compare_exchange_strong(
               possible_key, static_cast<K>(LOCKED_KEY),
-              cuda::std::memory_order_acquire, cuda::std::memory_order_relaxed);
+              hip::std::memory_order_acquire, hip::std::memory_order_relaxed);
         }
       }
     }
@@ -452,7 +454,7 @@ __global__ void pipeline_update_kernel_with_io(
       auto key_ptr = BUCKET::keys(keys_ptr, target_pos);
       if (rank == 0) {
         auto key_address = BUCKET::keys(keys_ptr, target_pos);
-        key_address->store(target_key, cuda::std::memory_order_release);
+        key_address->store(target_key, hip::std::memory_order_release);
       }
     }
   }
@@ -482,7 +484,7 @@ __global__ void pipeline_update_kernel_with_io(
           sm_scores[groupID] + same_buf(loop_num + 1), 0, global_epoch);
       if (rank == 0) {
         auto key_address = BUCKET::keys(keys_ptr, target_pos);
-        key_address->store(target_key, cuda::std::memory_order_release);
+        key_address->store(target_key, hip::std::memory_order_release);
       }
     }
   }
@@ -519,7 +521,7 @@ struct Params_Update {
 template <typename K, typename V, typename S, typename VecV, int Strategy>
 struct Launch_TLP_Update {
   using Params = Params_Update<K, V, S>;
-  inline static void launch_kernel(Params& params, cudaStream_t& stream) {
+  inline static void launch_kernel(Params& params, hipStream_t& stream) {
     constexpr int BLOCK_SIZE = 128;
     params.dim = params.dim * sizeof(V) / sizeof(VecV);
     tlp_update_kernel_with_io<K, V, S, VecV, BLOCK_SIZE, Strategy>
@@ -534,7 +536,7 @@ struct Launch_TLP_Update {
 template <typename K, typename V, typename S, typename VecV, int Strategy>
 struct Launch_Pipeline_Update {
   using Params = Params_Update<K, V, S>;
-  inline static void launch_kernel(Params& params, cudaStream_t& stream) {
+  inline static void launch_kernel(Params& params, hipStream_t& stream) {
     constexpr int BLOCK_SIZE = 128;
     constexpr uint32_t GROUP_SIZE = 16;
     constexpr uint32_t GROUP_NUM = BLOCK_SIZE / GROUP_SIZE;
@@ -590,7 +592,7 @@ struct KernelSelector_Update {
     return false;
   }
 
-  static void select_kernel(Params& params, cudaStream_t& stream) {
+  static void select_kernel(Params& params, hipStream_t& stream) {
     const uint32_t total_value_size =
         static_cast<uint32_t>(params.dim * sizeof(V));
 
@@ -715,7 +717,7 @@ __global__ void update_kernel_with_io(
 
     if (g.thread_rank() == src_lane) {
       (bucket->keys(key_pos))
-          ->store(update_key, cuda::std::memory_order_relaxed);
+          ->store(update_key, hip::std::memory_order_relaxed);
     }
   }
 }
@@ -725,7 +727,7 @@ struct SelectUpdateKernelWithIO {
   static void execute_kernel(const float& load_factor, const int& block_size,
                              const size_t bucket_max_size,
                              const size_t buckets_num, const size_t dim,
-                             cudaStream_t& stream, const size_t& n,
+                             hipStream_t& stream, const size_t& n,
                              const Table<K, V, S>* __restrict table,
                              Bucket<K, V, S>* buckets, const K* __restrict keys,
                              const V* __restrict values,
@@ -816,7 +818,7 @@ __global__ void tlp_update_kernel_hybrid(
       cmp_result &= 0x01010101;
       do {
         if (cmp_result == 0) break;
-        // CUDA uses little endian,
+        // ROCM uses little endian,
         // and the lowest byte in register stores in the lowest address.
         uint32_t index = (__ffs(cmp_result) - 1) >> 3;
         cmp_result &= (cmp_result - 1);
@@ -826,7 +828,7 @@ __global__ void tlp_update_kernel_hybrid(
         // Modifications to the bucket will not before this instruction.
         result = current_key->compare_exchange_strong(
             expected_key, static_cast<K>(LOCKED_KEY),
-            cuda::std::memory_order_acquire, cuda::std::memory_order_relaxed);
+            hip::std::memory_order_acquire, hip::std::memory_order_relaxed);
       } while (!result);
       if (result) {
         key_pos = possible_pos;
@@ -848,7 +850,7 @@ __global__ void tlp_update_kernel_hybrid(
         possible_pos = pos_cur + i * 4 + index;
         if (offset == 0 && possible_pos < key_pos) continue;
         auto current_key = BUCKET::keys(bucket_keys_ptr, possible_pos);
-        auto probe_key = current_key->load(cuda::std::memory_order_relaxed);
+        auto probe_key = current_key->load(hip::std::memory_order_relaxed);
         if (probe_key == static_cast<K>(EMPTY_KEY)) {
           return;
         }
@@ -913,7 +915,7 @@ __global__ void update_kernel(const Table<K, V, S>* __restrict table,
 
     if (g.thread_rank() == src_lane) {
       (bucket->keys(key_pos))
-          ->store(update_key, cuda::std::memory_order_relaxed);
+          ->store(update_key, hip::std::memory_order_relaxed);
     }
   }
 }

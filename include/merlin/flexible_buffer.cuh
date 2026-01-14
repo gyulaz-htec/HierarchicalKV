@@ -31,12 +31,12 @@ class FlexPinnedBuffer {
   FlexPinnedBuffer(const size_t size = 1) : ptr_(nullptr) {
     if (!ptr_) {
       size_ = size;
-      CUDA_CHECK(cudaMallocHost(&ptr_, sizeof(T) * size_));
+      ROCM_CHECK(hipHostMalloc(&ptr_, sizeof(T) * size_));
     }
   }
   ~FlexPinnedBuffer() {
     try {
-      if (ptr_) CUDA_CHECK(cudaFreeHost(ptr_));
+      if (ptr_) ROCM_CHECK(hipHostFree(ptr_));
     } catch (const nv::merlin::CudaException& e) {
       cerr << "[HierarchicalKV] Failed to free FlexPinnedBuffer!" << endl;
     }
@@ -44,9 +44,9 @@ class FlexPinnedBuffer {
 
   __inline__ T* alloc_or_reuse(const size_t size = 0) {
     if (size > size_) {
-      CUDA_CHECK(cudaFreeHost(ptr_));
+      ROCM_CHECK(hipHostFree(ptr_));
       size_ = size;
-      CUDA_CHECK(cudaMallocHost(&ptr_, sizeof(T) * size_));
+      ROCM_CHECK(hipHostMalloc(&ptr_, sizeof(T) * size_));
     }
     return ptr_;
   }

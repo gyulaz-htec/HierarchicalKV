@@ -1,3 +1,5 @@
+#include "hip/hip_runtime.h"
+#include "hip/hip_runtime.h"
 /*
  * Copyright (c) 2023, NVIDIA CORPORATION.
  *
@@ -178,7 +180,7 @@ struct SelectAccumOrAssignKernelWithIO {
   static void execute_kernel(
       const float& load_factor, const int& block_size,
       const size_t bucket_max_size, const size_t buckets_num, const size_t dim,
-      cudaStream_t& stream, const size_t& n,
+      hipStream_t& stream, const size_t& n,
       const Table<K, V, S>* __restrict table, const K* __restrict keys,
       const V* __restrict value_or_deltas, const S* __restrict scores,
       const bool* __restrict accum_or_assigns, const S global_epoch) {

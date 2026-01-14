@@ -18,8 +18,8 @@
 
 #include <stddef.h>
 #include <cstdint>
-#include <cuda/atomic>
-#include <cuda/std/semaphore>
+#include <hip/atomic>
+// #include <rocm/std/semaphore>
 #include "debug.hpp"
 
 namespace nv {
@@ -77,11 +77,11 @@ __forceinline__ __device__ bool IS_VACANT_KEY(K key) {
   return (VACANT_KEY_MASK_1 & key) == VACANT_KEY_MASK_2;
 }
 
-static cudaError_t init_reserved_keys(int index) {
+static hipError_t init_reserved_keys(int index) {
   if (index < 1 || index > MAX_RESERVED_KEY_BIT) {
     // index = 0 is the default,
     // index = 62 is the maximum index can be set for reserved keys.
-    return cudaSuccess;
+    return hipSuccess;
   }
   uint64_t reservedKeyMask1 = ~(UINT64_C(3) << index);
   uint64_t reservedKeyMask2 = reservedKeyMask1 & ~UINT64_C(1);
@@ -93,29 +93,29 @@ static cudaError_t init_reserved_keys(int index) {
   uint64_t lockedKey = emptyKey & ~(UINT64_C(2) << index);
   EMPTY_KEY_CPU = emptyKey;
 
-  CUDA_CHECK(cudaMemcpyToSymbol(EMPTY_KEY, &emptyKey, sizeof(uint64_t)));
-  CUDA_CHECK(cudaMemcpyToSymbol(RECLAIM_KEY, &reclaimKey, sizeof(uint64_t)));
-  CUDA_CHECK(cudaMemcpyToSymbol(LOCKED_KEY, &lockedKey, sizeof(uint64_t)));
+  ROCM_CHECK(hipMemcpyToSymbol(HIP_SYMBOL(EMPTY_KEY), &emptyKey, sizeof(uint64_t)));
+  ROCM_CHECK(hipMemcpyToSymbol(HIP_SYMBOL(RECLAIM_KEY), &reclaimKey, sizeof(uint64_t)));
+  ROCM_CHECK(hipMemcpyToSymbol(HIP_SYMBOL(LOCKED_KEY), &lockedKey, sizeof(uint64_t)));
 
-  CUDA_CHECK(cudaMemcpyToSymbol(RESERVED_KEY_MASK_1, &reservedKeyMask1,
+  ROCM_CHECK(hipMemcpyToSymbol(HIP_SYMBOL(RESERVED_KEY_MASK_1), &reservedKeyMask1,
                                 sizeof(uint64_t)));
-  CUDA_CHECK(cudaMemcpyToSymbol(RESERVED_KEY_MASK_2, &reservedKeyMask2,
+  ROCM_CHECK(hipMemcpyToSymbol(HIP_SYMBOL(RESERVED_KEY_MASK_2), &reservedKeyMask2,
                                 sizeof(uint64_t)));
-  CUDA_CHECK(
-      cudaMemcpyToSymbol(VACANT_KEY_MASK_1, &vacantKeyMask1, sizeof(uint64_t)));
-  CUDA_CHECK(
-      cudaMemcpyToSymbol(VACANT_KEY_MASK_2, &vacantKeyMask2, sizeof(uint64_t)));
-  return cudaGetLastError();
+  ROCM_CHECK(
+      hipMemcpyToSymbol(HIP_SYMBOL(VACANT_KEY_MASK_1), &vacantKeyMask1, sizeof(uint64_t)));
+  ROCM_CHECK(
+      hipMemcpyToSymbol(HIP_SYMBOL(VACANT_KEY_MASK_2), &vacantKeyMask2, sizeof(uint64_t)));
+  return hipGetLastError();
 }
 
 template <class K>
-using AtomicKey = cuda::atomic<K, cuda::thread_scope_device>;
+using AtomicKey = hip::atomic<K, hip::thread_scope_device>;
 
 template <class S>
-using AtomicScore = cuda::atomic<S, cuda::thread_scope_device>;
+using AtomicScore = hip::atomic<S, hip::thread_scope_device>;
 
 template <class T>
-using AtomicPos = cuda::atomic<T, cuda::thread_scope_device>;
+using AtomicPos = hip::atomic<T, hip::thread_scope_device>;
 
 template <class K, class V, class S>
 struct Bucket {
@@ -150,7 +150,7 @@ struct Bucket {
   static __forceinline__ __device__ D* digests(K* keys,
                                                uint32_t bucket_capacity,
                                                uint32_t offset) {
-    bucket_capacity = umax(bucket_capacity, 128);
+    bucket_capacity = max(bucket_capacity, 128u);
     return reinterpret_cast<D*>(keys) - bucket_capacity + offset;
   }
 
@@ -160,9 +160,9 @@ struct Bucket {
   }
 };
 
-template <cuda::thread_scope Scope, class T = int>
+template <hip::thread_scope Scope, class T = int>
 class Lock {
-  mutable cuda::atomic<T, Scope> _lock;
+  mutable hip::atomic<T, Scope> _lock;
 
  public:
   __device__ Lock() : _lock{1} {}
@@ -173,7 +173,7 @@ class Lock {
     if (g.thread_rank() == lane) {
       T expected = 1;
       while (!_lock.compare_exchange_weak(expected, 2,
-                                          cuda::std::memory_order_acquire)) {
+                                          hip::std::memory_order_acquire)) {
         expected = 1;
       }
     }
@@ -185,12 +185,12 @@ class Lock {
                                           unsigned long long lane = 0) const {
     g.sync();
     if (g.thread_rank() == lane) {
-      _lock.store(1, cuda::std::memory_order_release);
+      _lock.store(1, hip::std::memory_order_release);
     }
   }
 };
 
-using Mutex = Lock<cuda::thread_scope_device>;
+using Mutex = Lock<hip::thread_scope_device>;
 
 template <class K, class V, class S>
 struct Table {
@@ -233,7 +233,7 @@ using EraseIfPredictInternal =
  *
  * @tparam K The data type of the key.
  * @tparam V The data type of the vector's elements.
- *         The item data type should be a basic data type of C++/CUDA.
+ *         The item data type should be a basic data type of C++/ROCM.
  * @tparam S The data type for `score`.
  *           The currently supported data type is only `uint64_t`.
  *

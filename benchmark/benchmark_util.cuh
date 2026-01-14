@@ -1,3 +1,5 @@
+#include "hip/hip_runtime.h"
+#include "hip/hip_runtime.h"
 /*
  * Copyright (c) 2023, NVIDIA CORPORATION.
  *
@@ -68,22 +70,22 @@ struct Timer {
   std::chrono::time_point<std::chrono::steady_clock> endRecord{};
 };
 
-// RAII Timer using CUDA Event
+// RAII Timer using ROCM Event
 template <typename Rep>
 struct KernelTimer {
   explicit KernelTimer(TimeUnit tu = TimeUnit::Second) : tu_(tu) {
-    CUDA_CHECK(cudaEventCreate(&start_));
-    CUDA_CHECK(cudaEventCreate(&end_));
+    ROCM_CHECK(hipEventCreate(&start_));
+    ROCM_CHECK(hipEventCreate(&end_));
   }
   ~KernelTimer() {
-    CUDA_CHECK(cudaEventDestroy(start_));
-    CUDA_CHECK(cudaEventDestroy(end_));
+    ROCM_CHECK(hipEventDestroy(start_));
+    ROCM_CHECK(hipEventDestroy(end_));
   }
-  void start() { CUDA_CHECK(cudaEventRecord(start_)); }
+  void start() { ROCM_CHECK(hipEventRecord(start_)); }
   void end() {
-    CUDA_CHECK(cudaEventRecord(end_));
-    CUDA_CHECK(cudaEventSynchronize(end_));
-    CUDA_CHECK(cudaEventElapsedTime(&time, start_, end_));
+    ROCM_CHECK(hipEventRecord(end_));
+    ROCM_CHECK(hipEventSynchronize(end_));
+    ROCM_CHECK(hipEventElapsedTime(&time, start_, end_));
   }
   Rep getResult() {
     auto pow_ =
@@ -95,8 +97,8 @@ struct KernelTimer {
  private:
   TimeUnit tu_;
   float time{-1.0f};
-  cudaEvent_t start_;
-  cudaEvent_t end_;
+  hipEvent_t start_;
+  hipEvent_t end_;
 };
 
 inline uint64_t getTimestamp() {
@@ -210,7 +212,7 @@ __global__ void read_from_ptr_kernel(const V* const* __restrict src,
 
 template <class V>
 void read_from_ptr(const V* const* __restrict src, V* __restrict dst,
-                   const size_t dim, size_t n, cudaStream_t stream) {
+                   const size_t dim, size_t n, hipStream_t stream) {
   const size_t block_size = 1024;
   const size_t N = n * dim;
   const size_t grid_size = nv::merlin::SAFE_GET_GRID_SIZE(N, block_size);
@@ -232,7 +234,7 @@ __global__ void array2ptr_kernel(V** ptr, V* __restrict array, const size_t dim,
 
 template <class V>
 void array2ptr(V** ptr, V* __restrict array, const size_t dim, size_t n,
-               cudaStream_t stream) {
+               hipStream_t stream) {
   const size_t block_size = 1024;
   const size_t N = n;
   const size_t grid_size = nv::merlin::SAFE_GET_GRID_SIZE(N, block_size);
@@ -243,21 +245,28 @@ void array2ptr(V** ptr, V* __restrict array, const size_t dim, size_t n,
 template <class S>
 __global__ void host_nano_kernel(S* d_clk) {
   S mclk;
+#ifdef __HIP_PLATFORM_AMD__
+  // AMD GCN assembly for reading realtime clock
+  uint64_t time;
+  asm volatile("s_memrealtime %0" : "=s"(time));
+  mclk = static_cast<S>(time);
+#else
   asm volatile("mov.u64 %0,%%globaltimer;" : "=l"(mclk));
+#endif
   *d_clk = mclk;
 }
 
 template <class S>
-S host_nano(cudaStream_t stream = 0) {
+S host_nano(hipStream_t stream = 0) {
   S h_clk = 0;
   S* d_clk;
 
-  CUDA_CHECK(cudaMalloc((void**)&(d_clk), sizeof(S)));
+  ROCM_CHECK(hipMalloc((void**)&(d_clk), sizeof(S)));
   host_nano_kernel<S><<<1, 1, 0, stream>>>(d_clk);
-  CUDA_CHECK(cudaStreamSynchronize(stream));
+  ROCM_CHECK(hipStreamSynchronize(stream));
 
-  CUDA_CHECK(cudaMemcpy(&h_clk, d_clk, sizeof(S), cudaMemcpyDeviceToHost));
-  CUDA_CHECK(cudaFree(d_clk));
+  ROCM_CHECK(hipMemcpy(&h_clk, d_clk, sizeof(S), hipMemcpyDeviceToHost));
+  ROCM_CHECK(hipFree(d_clk));
   return h_clk;
 }
 

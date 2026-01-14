@@ -1,3 +1,5 @@
+#include "hip/hip_runtime.h"
+#include "hip/hip_runtime.h"
 /*
  * Copyright (c) 2023, NVIDIA CORPORATION.
  *
@@ -100,7 +102,7 @@ __global__ void tlp_v1_upsert_and_evict_kernel_unique(
       cmp_result &= 0x01010101;
       do {
         if (cmp_result == 0) break;
-        // CUDA uses little endian,
+        // ROCM uses little endian,
         // and the lowest byte in register stores in the lowest address.
         uint32_t index = (__ffs(cmp_result) - 1) >> 3;
         cmp_result &= (cmp_result - 1);
@@ -110,7 +112,7 @@ __global__ void tlp_v1_upsert_and_evict_kernel_unique(
         // Modifications to the bucket will not before this instruction.
         result = current_key->compare_exchange_strong(
             expected_key, static_cast<K>(LOCKED_KEY),
-            cuda::std::memory_order_acquire, cuda::std::memory_order_relaxed);
+            hip::std::memory_order_acquire, hip::std::memory_order_relaxed);
       } while (!result);
       if (result) {
         occupy_result = OccupyResult::DUPLICATE;
@@ -135,7 +137,7 @@ __global__ void tlp_v1_upsert_and_evict_kernel_unique(
         K expected_key = static_cast<K>(EMPTY_KEY);
         result = current_key->compare_exchange_strong(
             expected_key, static_cast<K>(LOCKED_KEY),
-            cuda::std::memory_order_acquire, cuda::std::memory_order_relaxed);
+            hip::std::memory_order_acquire, hip::std::memory_order_relaxed);
       } while (!result);
       if (result) {
         occupy_result = OccupyResult::OCCUPIED_EMPTY;
@@ -196,19 +198,19 @@ __global__ void tlp_v1_upsert_and_evict_kernel_unique(
       break;
     }
     auto min_score_key = BUCKET::keys(bucket_keys_ptr, min_pos);
-    auto expected_key = min_score_key->load(cuda::std::memory_order_relaxed);
+    auto expected_key = min_score_key->load(hip::std::memory_order_relaxed);
     if (expected_key != static_cast<K>(LOCKED_KEY) &&
         expected_key != static_cast<K>(EMPTY_KEY)) {
       bool result = min_score_key->compare_exchange_strong(
           expected_key, static_cast<K>(LOCKED_KEY),
-          cuda::std::memory_order_acquire, cuda::std::memory_order_relaxed);
+          hip::std::memory_order_acquire, hip::std::memory_order_relaxed);
       if (result) {
         S* min_score_ptr =
             BUCKET::scores(bucket_keys_ptr, bucket_capacity, min_pos);
         auto verify_score_ptr =
             reinterpret_cast<AtomicScore<S>*>(min_score_ptr);
         auto verify_score =
-            verify_score_ptr->load(cuda::std::memory_order_relaxed);
+            verify_score_ptr->load(hip::std::memory_order_relaxed);
         if (verify_score <= min_score) {
           key_pos = min_pos;
           ScoreFunctor::update_with_digest(
@@ -224,7 +226,7 @@ __global__ void tlp_v1_upsert_and_evict_kernel_unique(
                                   expected_key, min_score);
           }
         } else {
-          min_score_key->store(expected_key, cuda::std::memory_order_release);
+          min_score_key->store(expected_key, hip::std::memory_order_release);
         }
       }
     }
@@ -241,7 +243,7 @@ __global__ void tlp_v1_upsert_and_evict_kernel_unique(
     auto key_address = BUCKET::keys(bucket_keys_ptr, key_pos);
     // memory_order_release:
     // Modifications to the bucket will not after this instruction.
-    key_address->store(key, cuda::std::memory_order_release);
+    key_address->store(key, hip::std::memory_order_release);
   } else {
     CopyValue::ldg_stg(0, evicted_value_ptr, param_value_ptr, dim);
   }
@@ -329,7 +331,7 @@ __global__ void tlp_v2_upsert_and_evict_kernel_unique(
       cmp_result &= 0x01010101;
       do {
         if (cmp_result == 0) break;
-        // CUDA uses little endian,
+        // ROCM uses little endian,
         // and the lowest byte in register stores in the lowest address.
         uint32_t index = (__ffs(cmp_result) - 1) >> 3;
         cmp_result &= (cmp_result - 1);
@@ -339,7 +341,7 @@ __global__ void tlp_v2_upsert_and_evict_kernel_unique(
         // Modifications to the bucket will not before this instruction.
         result = current_key->compare_exchange_strong(
             expected_key, static_cast<K>(LOCKED_KEY),
-            cuda::std::memory_order_acquire, cuda::std::memory_order_relaxed);
+            hip::std::memory_order_acquire, hip::std::memory_order_relaxed);
       } while (!result);
       if (result) {
         occupy_result = OccupyResult::DUPLICATE;
@@ -364,7 +366,7 @@ __global__ void tlp_v2_upsert_and_evict_kernel_unique(
         K expected_key = static_cast<K>(EMPTY_KEY);
         result = current_key->compare_exchange_strong(
             expected_key, static_cast<K>(LOCKED_KEY),
-            cuda::std::memory_order_acquire, cuda::std::memory_order_relaxed);
+            hip::std::memory_order_acquire, hip::std::memory_order_relaxed);
       } while (!result);
       if (result) {
         occupy_result = OccupyResult::OCCUPIED_EMPTY;
@@ -413,7 +415,7 @@ __global__ void tlp_v2_upsert_and_evict_kernel_unique(
           if (temp_score < min_score) {
             auto verify_key_ptr = BUCKET::keys(bucket_keys_ptr, i + k + j);
             auto verify_key =
-                verify_key_ptr->load(cuda::std::memory_order_relaxed);
+                verify_key_ptr->load(hip::std::memory_order_relaxed);
             if (verify_key != static_cast<K>(LOCKED_KEY) &&
                 verify_key != static_cast<K>(EMPTY_KEY)) {
               min_score = temp_score;
@@ -431,19 +433,19 @@ __global__ void tlp_v2_upsert_and_evict_kernel_unique(
       break;
     }
     auto min_score_key = BUCKET::keys(bucket_keys_ptr, min_pos);
-    auto expected_key = min_score_key->load(cuda::std::memory_order_relaxed);
+    auto expected_key = min_score_key->load(hip::std::memory_order_relaxed);
     if (expected_key != static_cast<K>(LOCKED_KEY) &&
         expected_key != static_cast<K>(EMPTY_KEY)) {
       bool result = min_score_key->compare_exchange_strong(
           expected_key, static_cast<K>(LOCKED_KEY),
-          cuda::std::memory_order_acquire, cuda::std::memory_order_relaxed);
+          hip::std::memory_order_acquire, hip::std::memory_order_relaxed);
       if (result) {
         S* min_score_ptr =
             BUCKET::scores(bucket_keys_ptr, bucket_capacity, min_pos);
         auto verify_score_ptr =
             reinterpret_cast<AtomicScore<S>*>(min_score_ptr);
         auto verify_score =
-            verify_score_ptr->load(cuda::std::memory_order_relaxed);
+            verify_score_ptr->load(hip::std::memory_order_relaxed);
         if (verify_score <= min_score) {
           key_pos = min_pos;
           ScoreFunctor::update_with_digest(bucket_keys_ptr, key_pos, scores,
@@ -458,7 +460,7 @@ __global__ void tlp_v2_upsert_and_evict_kernel_unique(
                                   expected_key, min_score);
           }
         } else {
-          min_score_key->store(expected_key, cuda::std::memory_order_release);
+          min_score_key->store(expected_key, hip::std::memory_order_release);
         }
       }
     }
@@ -525,7 +527,7 @@ __global__ void tlp_v2_upsert_and_evict_kernel_unique(
           auto key_address = BUCKET::keys(bucket_keys_ptr, key_pos);
           // memory_order_release:
           // Modifications to the bucket will not after this instruction.
-          key_address->store(key, cuda::std::memory_order_release);
+          key_address->store(key, hip::std::memory_order_release);
         }
         if (occupy_result_cur == OccupyResult::EVICT) {
           src = src + dim;
@@ -725,7 +727,7 @@ __global__ void pipeline_upsert_and_evict_kernel_unique(
         K expected_key = key_cur;
         result = current_key->compare_exchange_strong(
             expected_key, static_cast<K>(LOCKED_KEY),
-            cuda::std::memory_order_acquire, cuda::std::memory_order_relaxed);
+            hip::std::memory_order_acquire, hip::std::memory_order_relaxed);
       } while (!result);
       uint32_t found_vote = g.ballot(result);
       if (found_vote) {
@@ -757,8 +759,8 @@ __global__ void pipeline_upsert_and_evict_kernel_unique(
               K expected_key = static_cast<K>(EMPTY_KEY);
               result = current_key->compare_exchange_strong(
                   expected_key, static_cast<K>(LOCKED_KEY),
-                  cuda::std::memory_order_acquire,
-                  cuda::std::memory_order_relaxed);
+                  hip::std::memory_order_acquire,
+                  hip::std::memory_order_relaxed);
             } while (!result);
           }
           uint32_t found_vote = g.ballot(result);
@@ -826,7 +828,7 @@ __global__ void pipeline_upsert_and_evict_kernel_unique(
           }
         }
         const S min_score_global =
-            cg::reduce(g, min_score_local, cg::less<S>());
+            reduce_min(g, min_score_local);
         if (score_cur < min_score_global) {
           if (rank == i - 1) {
             occupy_result = OccupyResult::REFUSED;
@@ -844,20 +846,20 @@ __global__ void pipeline_upsert_and_evict_kernel_unique(
             src[min_pos_global] = static_cast<S>(MAX_SCORE);  // Mark visited.
             auto min_score_key = BUCKET::keys(bucket_keys_ptr, min_pos_global);
             auto expected_key =
-                min_score_key->load(cuda::std::memory_order_relaxed);
+                min_score_key->load(hip::std::memory_order_relaxed);
             if (expected_key != static_cast<K>(LOCKED_KEY) &&
                 expected_key != static_cast<K>(EMPTY_KEY)) {
               bool result = min_score_key->compare_exchange_strong(
                   expected_key, static_cast<K>(LOCKED_KEY),
-                  cuda::std::memory_order_acquire,
-                  cuda::std::memory_order_relaxed);
+                  hip::std::memory_order_acquire,
+                  hip::std::memory_order_relaxed);
               if (result) {
                 S* score_ptr = BUCKET::scores(bucket_keys_ptr, BUCKET_SIZE,
                                               min_pos_global);
                 auto verify_score_ptr =
                     reinterpret_cast<AtomicScore<S>*>(score_ptr);
                 auto verify_score =
-                    verify_score_ptr->load(cuda::std::memory_order_relaxed);
+                    verify_score_ptr->load(hip::std::memory_order_relaxed);
                 if (verify_score <= min_score_global) {
                   if (expected_key == static_cast<K>(RECLAIM_KEY)) {
                     occupy_result = OccupyResult::OCCUPIED_RECLAIMED;
@@ -875,7 +877,7 @@ __global__ void pipeline_upsert_and_evict_kernel_unique(
 
                 } else {
                   min_score_key->store(expected_key,
-                                       cuda::std::memory_order_release);
+                                       hip::std::memory_order_release);
                 }
               }
             }
@@ -924,7 +926,7 @@ __global__ void pipeline_upsert_and_evict_kernel_unique(
           CopyValue::lds_stg(rank, dst, src, dim);
           if (rank == i - 2) {
             auto key_address = BUCKET::keys(bucket_keys_ptr, key_pos);
-            key_address->store(key, cuda::std::memory_order_release);
+            key_address->store(key, hip::std::memory_order_release);
           }
           if (occupy_result_cur == OccupyResult::EVICT) {
             src = src + dim;
@@ -962,7 +964,7 @@ __global__ void pipeline_upsert_and_evict_kernel_unique(
         }
       }
     }
-    const S min_score_global = cg::reduce(g, min_score_local, cg::less<S>());
+    const S min_score_global = reduce_min(g, min_score_local);
     if (score_cur < min_score_global) {
       if (rank == GROUP_SIZE - 1) {
         occupy_result = OccupyResult::REFUSED;
@@ -980,21 +982,21 @@ __global__ void pipeline_upsert_and_evict_kernel_unique(
         src[min_pos_global] = MAX_SCORE;  // Mark visited.
         auto min_score_key = BUCKET::keys(bucket_keys_ptr, min_pos_global);
         auto expected_key =
-            min_score_key->load(cuda::std::memory_order_acquire);
+            min_score_key->load(hip::std::memory_order_acquire);
         if (expected_key != static_cast<K>(LOCKED_KEY) &&
             expected_key != static_cast<K>(EMPTY_KEY)) {
           auto min_score_ptr =
               BUCKET::scores(bucket_keys_ptr, BUCKET_SIZE, min_pos_global);
           bool result = min_score_key->compare_exchange_strong(
               expected_key, static_cast<K>(LOCKED_KEY),
-              cuda::std::memory_order_acquire, cuda::std::memory_order_acquire);
+              hip::std::memory_order_acquire, hip::std::memory_order_acquire);
           if (result) {
             S* score_ptr =
                 BUCKET::scores(bucket_keys_ptr, BUCKET_SIZE, min_pos_global);
             auto verify_score_ptr =
                 reinterpret_cast<AtomicScore<S>*>(score_ptr);
             auto verify_score =
-                verify_score_ptr->load(cuda::std::memory_order_relaxed);
+                verify_score_ptr->load(hip::std::memory_order_relaxed);
             if (verify_score <= min_score_global) {
               if (expected_key == static_cast<K>(RECLAIM_KEY)) {
                 atomicAdd(bucket_size_ptr, 1);
@@ -1010,7 +1012,7 @@ __global__ void pipeline_upsert_and_evict_kernel_unique(
                   BUCKET_SIZE, get_digest<K>(key), true);
             } else {
               min_score_key->store(expected_key,
-                                   cuda::std::memory_order_release);
+                                   hip::std::memory_order_release);
             }
           }
         }
@@ -1056,7 +1058,7 @@ __global__ void pipeline_upsert_and_evict_kernel_unique(
       CopyValue::lds_stg(rank, dst, src, dim);
       if (rank == GROUP_SIZE - 2) {
         auto key_address = BUCKET::keys(bucket_keys_ptr, key_pos);
-        key_address->store(key, cuda::std::memory_order_release);
+        key_address->store(key, hip::std::memory_order_release);
       }
       if (occupy_result_cur == OccupyResult::EVICT) {
         src = src + dim;
@@ -1087,7 +1089,7 @@ __global__ void pipeline_upsert_and_evict_kernel_unique(
       CopyValue::lds_stg(rank, dst, src, dim);
       if (rank == GROUP_SIZE - 1) {
         auto key_address = BUCKET::keys(bucket_keys_ptr, key_pos);
-        key_address->store(key, cuda::std::memory_order_release);
+        key_address->store(key, hip::std::memory_order_release);
       }
       if (occupy_result_cur == OccupyResult::EVICT) {
         src = src + dim;
@@ -1222,7 +1224,7 @@ __global__ void insert_and_evict_kernel_with_filter(
       cmp_result &= 0x01010101;
       do {
         if (cmp_result == 0) break;
-        // CUDA uses little endian,
+        // ROCM uses little endian,
         // and the lowest byte in register stores in the lowest address.
         uint32_t index = (__ffs(cmp_result) - 1) >> 3;
         cmp_result &= (cmp_result - 1);
@@ -1232,7 +1234,7 @@ __global__ void insert_and_evict_kernel_with_filter(
         // Modifications to the bucket will not before this instruction.
         result = current_key->compare_exchange_strong(
             expected_key, static_cast<K>(LOCKED_KEY),
-            cuda::std::memory_order_acquire, cuda::std::memory_order_relaxed);
+            hip::std::memory_order_acquire, hip::std::memory_order_relaxed);
       } while (!result);
       if (result) {
         occupy_result = OccupyResult::DUPLICATE;
@@ -1257,7 +1259,7 @@ __global__ void insert_and_evict_kernel_with_filter(
         K expected_key = static_cast<K>(EMPTY_KEY);
         result = current_key->compare_exchange_strong(
             expected_key, static_cast<K>(LOCKED_KEY),
-            cuda::std::memory_order_acquire, cuda::std::memory_order_relaxed);
+            hip::std::memory_order_acquire, hip::std::memory_order_relaxed);
       } while (!result);
       if (result) {
         occupy_result = OccupyResult::OCCUPIED_EMPTY;
@@ -1306,7 +1308,7 @@ __global__ void insert_and_evict_kernel_with_filter(
           if (temp_score < min_score) {
             auto verify_key_ptr = BUCKET::keys(bucket_keys_ptr, i + k + j);
             auto verify_key =
-                verify_key_ptr->load(cuda::std::memory_order_relaxed);
+                verify_key_ptr->load(hip::std::memory_order_relaxed);
             if (verify_key != static_cast<K>(LOCKED_KEY) &&
                 verify_key != static_cast<K>(EMPTY_KEY)) {
               min_score = temp_score;
@@ -1324,19 +1326,19 @@ __global__ void insert_and_evict_kernel_with_filter(
       break;
     }
     auto min_score_key = BUCKET::keys(bucket_keys_ptr, min_pos);
-    auto expected_key = min_score_key->load(cuda::std::memory_order_relaxed);
+    auto expected_key = min_score_key->load(hip::std::memory_order_relaxed);
     if (expected_key != static_cast<K>(LOCKED_KEY) &&
         expected_key != static_cast<K>(EMPTY_KEY)) {
       bool result = min_score_key->compare_exchange_strong(
           expected_key, static_cast<K>(LOCKED_KEY),
-          cuda::std::memory_order_acquire, cuda::std::memory_order_relaxed);
+          hip::std::memory_order_acquire, hip::std::memory_order_relaxed);
       if (result) {
         S* min_score_ptr =
             BUCKET::scores(bucket_keys_ptr, bucket_capacity, min_pos);
         auto verify_score_ptr =
             reinterpret_cast<AtomicScore<S>*>(min_score_ptr);
         auto verify_score =
-            verify_score_ptr->load(cuda::std::memory_order_relaxed);
+            verify_score_ptr->load(hip::std::memory_order_relaxed);
         if (verify_score <= min_score) {
           key_pos = min_pos;
           ScoreFunctor::update_with_digest(bucket_keys_ptr, key_pos, scores,
@@ -1351,7 +1353,7 @@ __global__ void insert_and_evict_kernel_with_filter(
                                   expected_key, min_score);
           }
         } else {
-          min_score_key->store(expected_key, cuda::std::memory_order_release);
+          min_score_key->store(expected_key, hip::std::memory_order_release);
         }
       }
     }
@@ -1389,7 +1391,7 @@ __global__ void insert_and_evict_kernel_with_filter(
         auto key_address = BUCKET::keys(bucket_keys_ptr, key_pos);
         // memory_order_release:
         // Modifications to the bucket will not after this instruction.
-        key_address->store(key, cuda::std::memory_order_release);
+        key_address->store(key, hip::std::memory_order_release);
       }
     }
   }
@@ -1398,7 +1400,7 @@ __global__ void insert_and_evict_kernel_with_filter(
 template <typename K, typename V, typename S, typename VecV, int Strategy>
 struct LaunchInsertAndEvictKernel {
   using Params = Params_UpsertAndEvict<K, V, S>;
-  inline static void launch(Params& params, cudaStream_t& stream) {
+  inline static void launch(Params& params, hipStream_t& stream) {
     constexpr int BLOCK_SIZE = 128;
     params.dim = params.dim * sizeof(V) / sizeof(VecV);
     constexpr int GROUP_SIZE = 32;
@@ -1417,7 +1419,7 @@ struct LaunchInsertAndEvictKernel {
 template <typename K, typename V, typename S, int Strategy>
 struct InsertAndEvictKernelLauncher {
   using Params = Params_UpsertAndEvict<K, V, S>;
-  static void launch_kernel(Params& params, cudaStream_t& stream) {
+  static void launch_kernel(Params& params, hipStream_t& stream) {
     const uint32_t total_value_size =
         static_cast<uint32_t>(params.dim * sizeof(V));
     if (total_value_size % sizeof(byte16) == 0) {
@@ -1439,7 +1441,7 @@ struct InsertAndEvictKernelLauncher {
 template <typename K, typename V, typename S, typename VecV, int Strategy>
 struct Launch_TLPv1_UpsertAndEvict {
   using Params = Params_UpsertAndEvict<K, V, S>;
-  inline static void launch_kernel(Params& params, cudaStream_t& stream) {
+  inline static void launch_kernel(Params& params, hipStream_t& stream) {
     constexpr int BLOCK_SIZE = 128;
     params.dim = params.dim * sizeof(V) / sizeof(VecV);
     tlp_v1_upsert_and_evict_kernel_unique<K, V, S, VecV, BLOCK_SIZE, Strategy>
@@ -1456,7 +1458,7 @@ struct Launch_TLPv1_UpsertAndEvict {
 template <typename K, typename V, typename S, typename VecV, int Strategy>
 struct Launch_TLPv2_UpsertAndEvict {
   using Params = Params_UpsertAndEvict<K, V, S>;
-  inline static void launch_kernel(Params& params, cudaStream_t& stream) {
+  inline static void launch_kernel(Params& params, hipStream_t& stream) {
     constexpr int BLOCK_SIZE = 128;
     params.dim = params.dim * sizeof(V) / sizeof(VecV);
     if (params.dim <= 8) {
@@ -1490,7 +1492,7 @@ struct Launch_TLPv2_UpsertAndEvict {
 template <typename K, typename V, typename S, typename VecV, int Strategy>
 struct Launch_Pipeline_UpsertAndEvict {
   using Params = Params_UpsertAndEvict<K, V, S>;
-  inline static void launch_kernel(Params& params, cudaStream_t& stream) {
+  inline static void launch_kernel(Params& params, hipStream_t& stream) {
     constexpr int BLOCK_SIZE = 128;
     constexpr uint32_t GROUP_SIZE = 32;
     constexpr uint32_t BUCKET_SIZE = 128;
@@ -1549,7 +1551,7 @@ struct KernelSelector_UpsertAndEvict {
     constexpr uint32_t MinBucketCap = sizeof(VecD_Load) / sizeof(D);
     if (!unique_key || bucket_size < MinBucketCap) return false;
     uint32_t value_size = dim * sizeof(V);
-#if defined(CUDART_VERSION) && (CUDART_VERSION >= 11030)
+#if defined(ROCMRT_VERSION) && (ROCMRT_VERSION >= 11030)
     if (value_size <= ValueConfig::size_tlp_v2) return true;
 #else
     if (value_size <= ValueConfig::size_tlp_v1) return true;
@@ -1560,7 +1562,7 @@ struct KernelSelector_UpsertAndEvict {
     return false;
   }
 
-  static void select_kernel(Params& params, cudaStream_t& stream) {
+  static void select_kernel(Params& params, hipStream_t& stream) {
     const uint32_t total_value_size =
         static_cast<uint32_t>(params.dim * sizeof(V));
 
@@ -1588,7 +1590,7 @@ struct KernelSelector_UpsertAndEvict {
       }
     };
 
-#if defined(CUDART_VERSION) && (CUDART_VERSION >= 11030)
+#if defined(ROCMRT_VERSION) && (ROCMRT_VERSION >= 11030)
     auto launch_TLPv2 = [&]() {
       if (total_value_size % sizeof(byte16) == 0) {
         using VecV = byte16;
@@ -1643,7 +1645,7 @@ struct KernelSelector_UpsertAndEvict {
       if (total_value_size <= ValueConfig::size_tlp_v1) {
         launch_TLPv1();
       } else {
-#if defined(CUDART_VERSION) && (CUDART_VERSION >= 11030)
+#if defined(ROCMRT_VERSION) && (ROCMRT_VERSION >= 11030)
         launch_TLPv2();
 #else
         launch_TLPv1();
@@ -1658,7 +1660,7 @@ struct KernelSelector_UpsertAndEvict {
         }
       } else if (total_value_size <= ValueConfig::size_tlp_v2) {
         if (params.load_factor <= 0.85f) {
-#if defined(CUDART_VERSION) && (CUDART_VERSION >= 11030)
+#if defined(ROCMRT_VERSION) && (ROCMRT_VERSION >= 11030)
           launch_TLPv2();
 #else
           launch_Pipeline();
@@ -1769,7 +1771,7 @@ struct SelectUpsertAndEvictKernelWithIO {
   static void execute_kernel(
       const float& load_factor, const int& block_size,
       const size_t bucket_max_size, const size_t buckets_num, const size_t dim,
-      cudaStream_t& stream, const size_t& n,
+      hipStream_t& stream, const size_t& n,
       const Table<K, V, S>* __restrict table, Bucket<K, V, S>* buckets,
       const K* __restrict keys, const V* __restrict values,
       const S* __restrict scores, K* __restrict evicted_keys,

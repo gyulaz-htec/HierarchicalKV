@@ -16,8 +16,8 @@
 
 #pragma once
 
-#include <cooperative_groups.h>
-#include "cuda_runtime.h"
+#include <hip/hip_cooperative_groups.h>
+#include "hip/hip_runtime.h"
 #include "thrust/device_vector.h"
 #include "thrust/execution_policy.h"
 #include "thrust/scan.h"
@@ -87,15 +87,15 @@ __global__ void gpu_select_kvm_kernel(const bool* masks, size_t n,
       while (target_key != empty_key) {
         target_key = empty_key;
         atomic_key->compare_exchange_weak(target_key, keys[tid],
-                                          cuda::std::memory_order_relaxed,
-                                          cuda::std::memory_order_relaxed);
+                                          hip::std::memory_order_relaxed,
+                                          hip::std::memory_order_relaxed);
       }
       if (scores) scores[bias] = scores[tid];
       for (size_t j = 0; j < dim; j++) {
         values[dim * bias + j] = values[dim * tid + j];
       }
       atomic_key = reinterpret_cast<AtomicKey<K>*>(keys) + tid;
-      atomic_key->store(empty_key, cuda::std::memory_order_relaxed);
+      atomic_key->store(empty_key, hip::std::memory_order_relaxed);
     }
   }
 }
@@ -104,14 +104,14 @@ template <typename K, typename V, typename S, typename Tidx, int TILE_SIZE = 8>
 void gpu_boolean_mask(size_t grid_size, size_t block_size, const bool* masks,
                       size_t n, size_t* n_evicted, Tidx* offsets,
                       K* __restrict keys, V* __restrict values,
-                      S* __restrict scores, size_t dim, cudaStream_t stream) {
+                      S* __restrict scores, size_t dim, hipStream_t stream) {
   size_t n_offsets = (n + TILE_SIZE - 1) / TILE_SIZE;
   gpu_cell_count<Tidx, TILE_SIZE>
       <<<grid_size, block_size, 0, stream>>>(masks, offsets, n, n_evicted);
 #if THRUST_VERSION >= 101600
-  auto policy = thrust::cuda::par_nosync.on(stream);
+  auto policy = thrust::hip::par_nosync.on(stream);
 #else
-  auto policy = thrust::cuda::par.on(stream);
+  auto policy = thrust::hip::par.on(stream);
 #endif
   thrust::device_ptr<Tidx> d_src(offsets);
   thrust::device_ptr<Tidx> d_dest(offsets);

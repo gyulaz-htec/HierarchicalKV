@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include <cuda_runtime_api.h>
+#include <hip/hip_runtime_api.h>
 #include <gtest/gtest.h>
 #include <iostream>
 #include "merlin/allocator.cuh"
@@ -33,7 +33,7 @@ struct DebugAllocator final
   static constexpr const char* name{"DebugAllocator"};
 
   inline static type* alloc(size_t n, BaseAllocator* allocator,
-                            cudaStream_t stream = 0) {
+                            hipStream_t stream = 0) {
     type* ptr{Allocator::alloc(n, allocator, stream)};
     std::cout << Allocator::name << "[type_name = " << typeid(type).name()
               << "]: " << static_cast<void*>(ptr) << " allocated = " << n
@@ -42,7 +42,7 @@ struct DebugAllocator final
   }
 
   inline static void free(type* ptr, BaseAllocator* allocator,
-                          cudaStream_t stream = 0) {
+                          hipStream_t stream = 0) {
     Allocator::free(ptr, allocator, stream);
     std::cout << Allocator::name << "[type_name = " << typeid(type).name()
               << "]: " << static_cast<void*>(ptr)
@@ -78,13 +78,13 @@ struct SomeType {
 };
 
 std::ostream& operator<<(std::ostream& os, const SomeType& obj) {
-  cudaPointerAttributes attr;
-  CUDA_CHECK(cudaPointerGetAttributes(&attr, &obj));
+  hipPointerAttribute_t attr;
+  ROCM_CHECK(hipPointerGetAttributes(&attr, &obj));
 
   SomeType tmp;
-  if (attr.type == cudaMemoryTypeDevice) {
-    CUDA_CHECK(
-        cudaMemcpy(&tmp, &obj, sizeof(SomeType), cudaMemcpyDeviceToHost));
+  if (attr.type == hipMemoryTypeDevice) {
+    ROCM_CHECK(
+        hipMemcpy(&tmp, &obj, sizeof(SomeType), hipMemcpyDeviceToHost));
   } else {
     tmp = obj;
   }
@@ -186,14 +186,14 @@ void test_device_allocator() {
   std::shared_ptr<DefaultAllocator> default_allocator(new DefaultAllocator());
 
   int num_devices;
-  CUDA_CHECK(cudaGetDeviceCount(&num_devices));
+  ROCM_CHECK(hipGetDeviceCount(&num_devices));
   MERLIN_CHECK(num_devices > 0,
-               "Need at least one CUDA capable device for running this test.");
+               "Need at least one ROCM capable device for running this test.");
 
-  CUDA_CHECK(cudaSetDevice(num_devices - 1));
+  ROCM_CHECK(hipSetDevice(num_devices - 1));
 
-  cudaStream_t stream;
-  CUDA_CHECK(cudaStreamCreate(&stream));
+  hipStream_t stream;
+  ROCM_CHECK(hipStreamCreate(&stream));
 
   {
     auto ptr{Allocator::make_unique(1, default_allocator.get())};
@@ -203,9 +203,9 @@ void test_device_allocator() {
     const SomeType tmp{47, 11};
 
     std::cout << "Sync UPtr after alloc get ptr: " << ptr.get() << std::endl;
-    CUDA_CHECK(cudaMemset(ptr.get(), 0, sizeof(SomeType)));
-    CUDA_CHECK(
-        cudaMemcpy(ptr.get(), &tmp, sizeof(SomeType), cudaMemcpyHostToDevice));
+    ROCM_CHECK(hipMemset(ptr.get(), 0, sizeof(SomeType)));
+    ROCM_CHECK(
+        hipMemcpy(ptr.get(), &tmp, sizeof(SomeType), hipMemcpyHostToDevice));
     std::cout << "Sync UPtr after set: " << *ptr << std::endl;
 
     ptr.reset();
@@ -218,8 +218,8 @@ void test_device_allocator() {
 
     std::cout << "Async UPtr after alloc: " << *ptr << std::endl;
     const SomeType tmp{47, 11};
-    CUDA_CHECK(
-        cudaMemcpy(ptr.get(), &tmp, sizeof(SomeType), cudaMemcpyHostToDevice));
+    ROCM_CHECK(
+        hipMemcpy(ptr.get(), &tmp, sizeof(SomeType), hipMemcpyHostToDevice));
     std::cout << "Async UPtr after set: " << *ptr << std::endl;
 
     ptr.reset();
@@ -232,27 +232,27 @@ void test_device_allocator() {
 
     std::cout << "SPtr after alloc: " << *ptr << std::endl;
     const SomeType tmp{47, 11};
-    CUDA_CHECK(
-        cudaMemcpy(ptr.get(), &tmp, sizeof(SomeType), cudaMemcpyHostToDevice));
+    ROCM_CHECK(
+        hipMemcpy(ptr.get(), &tmp, sizeof(SomeType), hipMemcpyHostToDevice));
     std::cout << "SPtr after set: " << *ptr << std::endl;
 
     ptr.reset();
     ASSERT_EQ(ptr.get(), nullptr);
   }
 
-  CUDA_CHECK(cudaStreamDestroy(stream));
+  ROCM_CHECK(hipStreamDestroy(stream));
 }
 
 void test_borrow_return_with_context(const bool use_custom_stream) {
   int num_devices;
-  CUDA_CHECK(cudaGetDeviceCount(&num_devices));
+  ROCM_CHECK(hipGetDeviceCount(&num_devices));
   MERLIN_CHECK(num_devices > 0,
-               "Need at least one CUDA capable device for running this test.");
-  CUDA_CHECK(cudaSetDevice(0));
+               "Need at least one ROCM capable device for running this test.");
+  ROCM_CHECK(hipSetDevice(0));
 
-  cudaStream_t stream{0};
+  hipStream_t stream{0};
   if (use_custom_stream) {
-    CUDA_CHECK(cudaStreamCreate(&stream));
+    ROCM_CHECK(hipStreamCreate(&stream));
   }
 
   std::shared_ptr<DefaultAllocator> default_allocator(new DefaultAllocator());
@@ -403,16 +403,16 @@ void test_borrow_return_with_context(const bool use_custom_stream) {
   }
 
   if (stream) {
-    CUDA_CHECK(cudaStreamDestroy(stream));
+    ROCM_CHECK(hipStreamDestroy(stream));
   }
 }
 
 void test_borrow_return_lost_context() {
   int num_devices;
-  CUDA_CHECK(cudaGetDeviceCount(&num_devices));
+  ROCM_CHECK(hipGetDeviceCount(&num_devices));
   MERLIN_CHECK(num_devices > 0,
-               "Need at least one CUDA capable device for running this test.");
-  CUDA_CHECK(cudaSetDevice(0));
+               "Need at least one ROCM capable device for running this test.");
+  ROCM_CHECK(hipSetDevice(0));
 
   std::shared_ptr<DefaultAllocator> default_allocator(new DefaultAllocator());
   {
@@ -427,15 +427,15 @@ void test_borrow_return_lost_context() {
 
     // Borrow and return one buffer (unique ptr).
     {
-      cudaStream_t stream;
-      CUDA_CHECK(cudaStreamCreate(&stream));
+      hipStream_t stream;
+      ROCM_CHECK(hipStreamCreate(&stream));
 
       auto buffer{pool.get_unique(buffer_size, stream)};
       std::cout << ".:: Borrow 1 (unique) ::.\n" << pool << std::endl;
       ASSERT_EQ(pool.current_stock(), 0);
       ASSERT_EQ(pool.num_pending(), 0);
 
-      CUDA_CHECK(cudaStreamDestroy(stream));
+      ROCM_CHECK(hipStreamDestroy(stream));
     }
     std::cout << ".:: Return 1 (unique) ::.\n" << pool << std::endl;
     ASSERT_EQ(pool.current_stock(), 1);
@@ -443,15 +443,15 @@ void test_borrow_return_lost_context() {
 
     // Borrow and return one buffer (shared ptr).
     {
-      cudaStream_t stream;
-      CUDA_CHECK(cudaStreamCreate(&stream));
+      hipStream_t stream;
+      ROCM_CHECK(hipStreamCreate(&stream));
 
       auto buffer{pool.get_shared(buffer_size)};
       std::cout << ".:: Borrow 1 (shared) ::.\n" << pool << std::endl;
       ASSERT_EQ(pool.current_stock(), 0);
       ASSERT_EQ(pool.num_pending(), 0);
 
-      CUDA_CHECK(cudaStreamDestroy(stream));
+      ROCM_CHECK(hipStreamDestroy(stream));
     }
     std::cout << ".:: Return 1 (shared) ::.\n" << pool << std::endl;
     ASSERT_EQ(pool.current_stock(), 1);
@@ -459,15 +459,15 @@ void test_borrow_return_lost_context() {
 
     // Borrow static workspace with less than `max_stock` buffers.
     {
-      cudaStream_t stream;
-      CUDA_CHECK(cudaStreamCreate(&stream));
+      hipStream_t stream;
+      ROCM_CHECK(hipStreamCreate(&stream));
 
       auto ws{pool.get_workspace<2>(buffer_size)};
       std::cout << ".:: Borrow 2 (static) ::.\n" << pool << std::endl;
       ASSERT_EQ(pool.current_stock(), 0);
       ASSERT_EQ(pool.num_pending(), 0);
 
-      CUDA_CHECK(cudaStreamDestroy(stream));
+      ROCM_CHECK(hipStreamDestroy(stream));
     }
     std::cout << ".:: Return 2 (static) ::.\n" << pool << std::endl;
     ASSERT_EQ(pool.current_stock(), 2);
@@ -475,15 +475,15 @@ void test_borrow_return_lost_context() {
 
     // Borrow dynamic workspace with less than `max_stock` buffers.
     {
-      cudaStream_t stream;
-      CUDA_CHECK(cudaStreamCreate(&stream));
+      hipStream_t stream;
+      ROCM_CHECK(hipStreamCreate(&stream));
 
       auto ws{pool.get_workspace(2, buffer_size)};
       std::cout << ".:: Borrow 2 (dynamic) ::.\n" << pool << std::endl;
       ASSERT_EQ(pool.current_stock(), 0);
       ASSERT_EQ(pool.num_pending(), 0);
 
-      CUDA_CHECK(cudaStreamDestroy(stream));
+      ROCM_CHECK(hipStreamDestroy(stream));
     }
 
     std::cout << ".:: Return 2 (dynamic) ::.\n" << pool << std::endl;
@@ -499,15 +499,15 @@ void test_borrow_return_lost_context() {
 
     // Borrow workspace that exceeds base pool size.
     {
-      cudaStream_t stream;
-      CUDA_CHECK(cudaStreamCreate(&stream));
+      hipStream_t stream;
+      ROCM_CHECK(hipStreamCreate(&stream));
 
       auto ws{pool.get_workspace<6>(buffer_size)};
       std::cout << ".:: Borrow 6 (static) ::.\n" << pool << std::endl;
       ASSERT_EQ(pool.current_stock(), 0);
       ASSERT_EQ(pool.num_pending(), 0);
 
-      CUDA_CHECK(cudaStreamDestroy(stream));
+      ROCM_CHECK(hipStreamDestroy(stream));
     }
     std::cout << ".:: Return 6 (static) ::.\n" << pool << std::endl;
     ASSERT_EQ(pool.current_stock(), opt.max_stock);
@@ -515,15 +515,15 @@ void test_borrow_return_lost_context() {
 
     // Borrow a buffer that is smaller than the current buffer size.
     {
-      cudaStream_t stream;
-      CUDA_CHECK(cudaStreamCreate(&stream));
+      hipStream_t stream;
+      ROCM_CHECK(hipStreamCreate(&stream));
 
       auto ws{pool.get_unique(buffer_size / 2)};
       std::cout << ".:: Borrow 1 (smaller) ::.\n" << pool << std::endl;
       ASSERT_EQ(pool.current_stock(), opt.max_stock - 1);
       ASSERT_EQ(pool.num_pending(), 0);
 
-      CUDA_CHECK(cudaStreamDestroy(stream));
+      ROCM_CHECK(hipStreamDestroy(stream));
     }
     std::cout << ".:: Return 1 (smaller) ::.\n" << pool << std::endl;
     ASSERT_EQ(pool.current_stock(), opt.max_stock);
@@ -531,15 +531,15 @@ void test_borrow_return_lost_context() {
 
     // Borrow a buffer that is bigger than the current buffer size.
     {
-      cudaStream_t stream;
-      CUDA_CHECK(cudaStreamCreate(&stream));
+      hipStream_t stream;
+      ROCM_CHECK(hipStreamCreate(&stream));
 
       auto ws{pool.get_unique(buffer_size + 37)};
       std::cout << ".:: Borrow 1 (bigger) ::.\n" << pool << std::endl;
       ASSERT_EQ(pool.current_stock(), 0);
       ASSERT_EQ(pool.num_pending(), 0);
 
-      CUDA_CHECK(cudaStreamDestroy(stream));
+      ROCM_CHECK(hipStreamDestroy(stream));
     }
     std::cout << ".:: Return 1 (smaller) ::.\n" << pool << std::endl;
     ASSERT_EQ(pool.current_stock(), 1);

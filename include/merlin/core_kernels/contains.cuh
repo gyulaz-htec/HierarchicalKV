@@ -1,3 +1,5 @@
+#include "hip/hip_runtime.h"
+#include "hip/hip_runtime.h"
 /*
  * Copyright (c) 2023, NVIDIA CORPORATION.
  *
@@ -217,7 +219,7 @@ __global__ void contains_kernel_pipeline(Bucket<K, V, S>* buckets,
 template <typename K, typename V, typename S>
 struct LaunchPipelineContains {
   static void launch_kernel(ContainsKernelParams<K, V, S>& params,
-                            cudaStream_t& stream) {
+                            hipStream_t& stream) {
     constexpr int BLOCK_SIZE = 128;
     // Using 32 threads to deal with one key
     contains_kernel_pipeline<K, V, S>
@@ -231,7 +233,7 @@ template <typename K, typename V, typename S = uint64_t,
           typename ArchTag = Sm80>
 struct SelectPipelineContainsKernel {
   static void select_kernel(ContainsKernelParams<K, V, S>& params,
-                            cudaStream_t& stream) {
+                            hipStream_t& stream) {
     LaunchPipelineContains<K, V, S>::launch_kernel(params, stream);
   }
 };
@@ -283,7 +285,7 @@ struct SelectContainsKernel {
   static void execute_kernel(const float& load_factor, const int& block_size,
                              const size_t bucket_max_size,
                              const size_t buckets_num, const size_t dim,
-                             cudaStream_t& stream, const size_t& n,
+                             hipStream_t& stream, const size_t& n,
                              const Table<K, V, S>* __restrict table,
                              Bucket<K, V, S>* buckets, const K* __restrict keys,
                              bool* __restrict found) {

@@ -34,15 +34,15 @@ void test_save_to_file() {
   size_t keynum = 1 * 1024 * 1024;
   size_t capacity = 2 * 1024 * 1024;
   size_t buffer_size = 1024 * 1024;
-  cudaStream_t stream;
-  CUDA_CHECK(cudaStreamCreate(&stream));
+  hipStream_t stream;
+  ROCM_CHECK(hipStreamCreate(&stream));
 
   K* h_keys = nullptr;
   V* h_vectors = nullptr;
   S* h_scores = nullptr;
-  CUDA_CHECK(cudaMallocHost(&h_keys, keynum * sizeof(K)));
-  CUDA_CHECK(cudaMallocHost(&h_vectors, keynum * sizeof(V) * DIM));
-  CUDA_CHECK(cudaMallocHost(&h_scores, keynum * sizeof(S)));
+  ROCM_CHECK(hipHostMalloc(&h_keys, keynum * sizeof(K)));
+  ROCM_CHECK(hipHostMalloc(&h_vectors, keynum * sizeof(V) * DIM));
+  ROCM_CHECK(hipHostMalloc(&h_scores, keynum * sizeof(S)));
   memset(h_keys, 0, keynum * sizeof(K));
   memset(h_vectors, 0, keynum * sizeof(V) * DIM);
   memset(h_scores, 0, keynum * sizeof(S));
@@ -55,12 +55,12 @@ void test_save_to_file() {
   test_util::getBufferOnDevice(&d_keys, keynum * sizeof(K), stream);
   test_util::getBufferOnDevice(&d_vectors, keynum * sizeof(V) * DIM, stream);
   test_util::getBufferOnDevice(&d_scores, keynum * sizeof(S), stream);
-  CUDA_CHECK(cudaMemcpyAsync(d_keys, h_keys, keynum * sizeof(K),
-                             cudaMemcpyHostToDevice, stream));
-  CUDA_CHECK(cudaMemcpyAsync(d_vectors, h_vectors, keynum * sizeof(V) * DIM,
-                             cudaMemcpyHostToDevice, stream));
-  CUDA_CHECK(cudaMemcpyAsync(d_scores, h_scores, keynum * sizeof(S),
-                             cudaMemcpyHostToDevice, stream));
+  ROCM_CHECK(hipMemcpyAsync(d_keys, h_keys, keynum * sizeof(K),
+                             hipMemcpyHostToDevice, stream));
+  ROCM_CHECK(hipMemcpyAsync(d_vectors, h_vectors, keynum * sizeof(V) * DIM,
+                             hipMemcpyHostToDevice, stream));
+  ROCM_CHECK(hipMemcpyAsync(d_scores, h_scores, keynum * sizeof(S),
+                             hipMemcpyHostToDevice, stream));
   printf("Create buffers.\n");
 
   TableOptions options;
@@ -99,9 +99,9 @@ void test_save_to_file() {
   ASSERT_TRUE((test_util::tables_equal<K, V, S, Table>(
       table_0.get(), table_1.get(), check_score, stream)));
   printf("table_0 and table_1 are equal.\n");
-  CUDA_FREE_POINTERS(stream, d_keys, d_vectors, d_scores, h_keys, h_vectors,
+  ROCM_FREE_POINTERS(stream, d_keys, d_vectors, d_scores, h_keys, h_vectors,
                      h_scores);
-  CUDA_CHECK(cudaStreamSynchronize(stream));
+  ROCM_CHECK(hipStreamSynchronize(stream));
 }
 
 TEST(SaveAndLoadTest, test_save_and_load_on_lru) {

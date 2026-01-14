@@ -1,3 +1,5 @@
+#include "hip/hip_runtime.h"
+#include "hip/hip_runtime.h"
 /*
  * Copyright (c) 2024, NVIDIA CORPORATION.
  *
@@ -36,17 +38,17 @@ void testCustomMemsetAsync() {
   uint64_t* devPtr;
   uint64_t* hostData = new uint64_t[numElements];
 
-  cudaMalloc((void**)&devPtr, numElements * sizeof(uint64_t));
+  hipMalloc((void**)&devPtr, numElements * sizeof(uint64_t));
   memset64Async(devPtr, value, numElements);
-  cudaMemcpy(hostData, devPtr, numElements * sizeof(uint64_t),
-             cudaMemcpyDeviceToHost);
+  hipMemcpy(hostData, devPtr, numElements * sizeof(uint64_t),
+             hipMemcpyDeviceToHost);
   for (size_t i = 0; i < numElements; i++) {
     assert(hostData[i] == value);
   }
 
   std::cout << "All values were set correctly!" << std::endl;
 
-  cudaFree(devPtr);
+  hipFree(devPtr);
   delete[] hostData;
 }
 
@@ -56,27 +58,27 @@ void testReservedKeys(uint64_t* testKeys, bool* expectedResults,
   bool* d_results;
   bool* h_results = new bool[numKeys];
 
-  cudaMalloc(&d_keys, numKeys * sizeof(uint64_t));
-  cudaMalloc(&d_results, numKeys * sizeof(bool));
+  hipMalloc(&d_keys, numKeys * sizeof(uint64_t));
+  hipMalloc(&d_results, numKeys * sizeof(bool));
 
-  cudaMemcpy(d_keys, testKeys, numKeys * sizeof(uint64_t),
-             cudaMemcpyHostToDevice);
+  hipMemcpy(d_keys, testKeys, numKeys * sizeof(uint64_t),
+             hipMemcpyHostToDevice);
 
   int blockSize = 256;
   int numBlocks = (numKeys + blockSize - 1) / blockSize;
 
   testReservedKeysKernel<<<numBlocks, blockSize>>>(d_keys, d_results, numKeys);
-  cudaDeviceSynchronize();
+  hipDeviceSynchronize();
 
-  cudaMemcpy(h_results, d_results, numKeys * sizeof(bool),
-             cudaMemcpyDeviceToHost);
+  hipMemcpy(h_results, d_results, numKeys * sizeof(bool),
+             hipMemcpyDeviceToHost);
 
   for (size_t i = 0; i < numKeys; i++) {
     assert(h_results[i] == expectedResults[i]);
   }
 
-  cudaFree(d_keys);
-  cudaFree(d_results);
+  hipFree(d_keys);
+  hipFree(d_results);
   delete[] h_results;
   CudaCheckError();
   std::cout << "All tests passed." << std::endl;
@@ -84,10 +86,10 @@ void testReservedKeys(uint64_t* testKeys, bool* expectedResults,
 
 void testKeyOptions() {
   for (int i = 0; i <= MAX_RESERVED_KEY_BIT; i++) {
-    CUDA_CHECK(init_reserved_keys(i));
+    ROCM_CHECK(init_reserved_keys(i));
     uint64_t host_reclaim_key, host_locked_key;
-    cudaMemcpyFromSymbol(&host_reclaim_key, RECLAIM_KEY, sizeof(uint64_t));
-    cudaMemcpyFromSymbol(&host_locked_key, LOCKED_KEY, sizeof(uint64_t));
+    hipMemcpyFromSymbol(&host_reclaim_key, HIP_SYMBOL(HIP_SYMBOL(RECLAIM_KEY)), sizeof(uint64_t));
+    hipMemcpyFromSymbol(&host_locked_key, HIP_SYMBOL(HIP_SYMBOL(LOCKED_KEY)), sizeof(uint64_t));
 
     uint64_t testKeys[6] = {EMPTY_KEY_CPU, host_reclaim_key, host_locked_key,
                             UINT64_C(0x0), UINT64_C(0x10),   DEFAULT_EMPTY_KEY};

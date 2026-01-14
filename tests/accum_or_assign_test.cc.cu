@@ -1,3 +1,5 @@
+#include "hip/hip_runtime.h"
+#include "hip/hip_runtime.h"
 /*
  * Copyright (c) 2023, NVIDIA CORPORATION.
  *
@@ -72,13 +74,13 @@ void test_basic_when_full(size_t max_hbm_for_vectors, int key_start) {
   options.max_hbm_for_vectors = nv::merlin::GB(max_hbm_for_vectors);
   using Table = nv::merlin::HashTable<K, V, S, EvictStrategy::kCustomized>;
 
-  CUDA_CHECK(cudaMallocHost(&h_keys, KEY_NUM * sizeof(K)));
-  CUDA_CHECK(cudaMallocHost(&h_scores, KEY_NUM * sizeof(S)));
-  CUDA_CHECK(cudaMallocHost(&h_vectors, KEY_NUM * sizeof(V) * options.dim));
-  CUDA_CHECK(cudaMallocHost(&h_accum_or_assigns, KEY_NUM * sizeof(bool)));
-  CUDA_CHECK(cudaMallocHost(&h_found, KEY_NUM * sizeof(bool)));
+  ROCM_CHECK(hipHostMalloc(&h_keys, KEY_NUM * sizeof(K)));
+  ROCM_CHECK(hipHostMalloc(&h_scores, KEY_NUM * sizeof(S)));
+  ROCM_CHECK(hipHostMalloc(&h_vectors, KEY_NUM * sizeof(V) * options.dim));
+  ROCM_CHECK(hipHostMalloc(&h_accum_or_assigns, KEY_NUM * sizeof(bool)));
+  ROCM_CHECK(hipHostMalloc(&h_found, KEY_NUM * sizeof(bool)));
 
-  CUDA_CHECK(cudaMemset(h_vectors, 0, KEY_NUM * sizeof(V) * options.dim));
+  ROCM_CHECK(hipMemset(h_vectors, 0, KEY_NUM * sizeof(V) * options.dim));
 
   test_util::create_random_keys<K, S, V, DIM>(h_keys, h_scores, nullptr,
                                               KEY_NUM);
@@ -91,73 +93,73 @@ void test_basic_when_full(size_t max_hbm_for_vectors, int key_start) {
   V** d_vectors_ptr;
   bool* d_found;
 
-  CUDA_CHECK(cudaMalloc(&d_keys, KEY_NUM * sizeof(K)));
-  CUDA_CHECK(cudaMalloc(&d_scores, KEY_NUM * sizeof(S)));
-  CUDA_CHECK(cudaMalloc(&d_vectors, KEY_NUM * sizeof(V) * options.dim));
-  CUDA_CHECK(cudaMalloc(&d_accum_or_assigns, KEY_NUM * sizeof(bool)));
-  CUDA_CHECK(cudaMalloc(&d_def_val, KEY_NUM * sizeof(V) * options.dim));
-  CUDA_CHECK(cudaMalloc(&d_vectors_ptr, KEY_NUM * sizeof(V*)));
-  CUDA_CHECK(cudaMalloc(&d_found, KEY_NUM * sizeof(bool)));
+  ROCM_CHECK(hipMalloc(&d_keys, KEY_NUM * sizeof(K)));
+  ROCM_CHECK(hipMalloc(&d_scores, KEY_NUM * sizeof(S)));
+  ROCM_CHECK(hipMalloc(&d_vectors, KEY_NUM * sizeof(V) * options.dim));
+  ROCM_CHECK(hipMalloc(&d_accum_or_assigns, KEY_NUM * sizeof(bool)));
+  ROCM_CHECK(hipMalloc(&d_def_val, KEY_NUM * sizeof(V) * options.dim));
+  ROCM_CHECK(hipMalloc(&d_vectors_ptr, KEY_NUM * sizeof(V*)));
+  ROCM_CHECK(hipMalloc(&d_found, KEY_NUM * sizeof(bool)));
 
-  CUDA_CHECK(
-      cudaMemcpy(d_keys, h_keys, KEY_NUM * sizeof(K), cudaMemcpyHostToDevice));
-  CUDA_CHECK(cudaMemcpy(d_scores, h_scores, KEY_NUM * sizeof(S),
-                        cudaMemcpyHostToDevice));
+  ROCM_CHECK(
+      hipMemcpy(d_keys, h_keys, KEY_NUM * sizeof(K), hipMemcpyHostToDevice));
+  ROCM_CHECK(hipMemcpy(d_scores, h_scores, KEY_NUM * sizeof(S),
+                        hipMemcpyHostToDevice));
 
-  CUDA_CHECK(cudaMemset(d_vectors, 1, KEY_NUM * sizeof(V) * options.dim));
-  CUDA_CHECK(cudaMemset(d_def_val, 2, KEY_NUM * sizeof(V) * options.dim));
-  CUDA_CHECK(cudaMemset(d_vectors_ptr, 0, KEY_NUM * sizeof(V*)));
-  CUDA_CHECK(cudaMemset(d_found, 0, KEY_NUM * sizeof(bool)));
+  ROCM_CHECK(hipMemset(d_vectors, 1, KEY_NUM * sizeof(V) * options.dim));
+  ROCM_CHECK(hipMemset(d_def_val, 2, KEY_NUM * sizeof(V) * options.dim));
+  ROCM_CHECK(hipMemset(d_vectors_ptr, 0, KEY_NUM * sizeof(V*)));
+  ROCM_CHECK(hipMemset(d_found, 0, KEY_NUM * sizeof(bool)));
 
-  cudaStream_t stream;
-  CUDA_CHECK(cudaStreamCreate(&stream));
+  hipStream_t stream;
+  ROCM_CHECK(hipStreamCreate(&stream));
 
   uint64_t total_size = 0;
   for (int i = 0; i < TEST_TIMES; i++) {
     std::unique_ptr<Table> table = std::make_unique<Table>();
     table->init(options);
     total_size = table->size(stream);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
     ASSERT_EQ(total_size, 0);
 
     table->accum_or_assign(KEY_NUM, d_keys, d_vectors, d_accum_or_assigns,
                            d_scores, stream);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
 
     uint64_t total_size_after_insert = table->size(stream);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
 
     table->erase(KEY_NUM, d_keys, stream);
     size_t total_size_after_erase = table->size(stream);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
     ASSERT_EQ(total_size_after_erase, 0);
 
     table->accum_or_assign(KEY_NUM, d_keys, d_vectors, d_accum_or_assigns,
                            d_scores, stream);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
 
     uint64_t total_size_after_reinsert = table->size(stream);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
     ASSERT_EQ(total_size_after_insert, total_size_after_reinsert);
   }
-  CUDA_CHECK(cudaStreamDestroy(stream));
+  ROCM_CHECK(hipStreamDestroy(stream));
 
-  CUDA_CHECK(cudaMemcpy(h_vectors, d_vectors, KEY_NUM * sizeof(V) * options.dim,
-                        cudaMemcpyDeviceToHost));
+  ROCM_CHECK(hipMemcpy(h_vectors, d_vectors, KEY_NUM * sizeof(V) * options.dim,
+                        hipMemcpyDeviceToHost));
 
-  CUDA_CHECK(cudaFreeHost(h_keys));
-  CUDA_CHECK(cudaFreeHost(h_scores));
-  CUDA_CHECK(cudaFreeHost(h_found));
-  CUDA_CHECK(cudaFreeHost(h_accum_or_assigns));
+  ROCM_CHECK(hipHostFree(h_keys));
+  ROCM_CHECK(hipHostFree(h_scores));
+  ROCM_CHECK(hipHostFree(h_found));
+  ROCM_CHECK(hipHostFree(h_accum_or_assigns));
 
-  CUDA_CHECK(cudaFree(d_keys));
-  CUDA_CHECK(cudaFree(d_scores));
-  CUDA_CHECK(cudaFree(d_vectors));
-  CUDA_CHECK(cudaFree(d_accum_or_assigns));
-  CUDA_CHECK(cudaFree(d_def_val));
-  CUDA_CHECK(cudaFree(d_vectors_ptr));
-  CUDA_CHECK(cudaFree(d_found));
-  CUDA_CHECK(cudaDeviceSynchronize());
+  ROCM_CHECK(hipFree(d_keys));
+  ROCM_CHECK(hipFree(d_scores));
+  ROCM_CHECK(hipFree(d_vectors));
+  ROCM_CHECK(hipFree(d_accum_or_assigns));
+  ROCM_CHECK(hipFree(d_def_val));
+  ROCM_CHECK(hipFree(d_vectors_ptr));
+  ROCM_CHECK(hipFree(d_found));
+  ROCM_CHECK(hipDeviceSynchronize());
 
   CudaCheckError();
 }
@@ -186,11 +188,11 @@ void test_erase_if_pred(size_t max_hbm_for_vectors, int key_start) {
   std::unique_ptr<Table> table = std::make_unique<Table>();
   table->init(options);
 
-  CUDA_CHECK(cudaMallocHost(&h_keys, KEY_NUM * sizeof(K)));
-  CUDA_CHECK(cudaMallocHost(&h_scores, KEY_NUM * sizeof(S)));
-  CUDA_CHECK(cudaMallocHost(&h_vectors, KEY_NUM * sizeof(V) * options.dim));
-  CUDA_CHECK(cudaMallocHost(&h_found, KEY_NUM * sizeof(bool)));
-  CUDA_CHECK(cudaMallocHost(&h_accum_or_assigns, KEY_NUM * sizeof(bool)));
+  ROCM_CHECK(hipHostMalloc(&h_keys, KEY_NUM * sizeof(K)));
+  ROCM_CHECK(hipHostMalloc(&h_scores, KEY_NUM * sizeof(S)));
+  ROCM_CHECK(hipHostMalloc(&h_vectors, KEY_NUM * sizeof(V) * options.dim));
+  ROCM_CHECK(hipHostMalloc(&h_found, KEY_NUM * sizeof(bool)));
+  ROCM_CHECK(hipHostMalloc(&h_accum_or_assigns, KEY_NUM * sizeof(bool)));
 
   K* d_keys;
   S* d_scores = nullptr;
@@ -198,14 +200,14 @@ void test_erase_if_pred(size_t max_hbm_for_vectors, int key_start) {
   bool* d_found;
   bool* d_accum_or_assigns;
 
-  CUDA_CHECK(cudaMalloc(&d_keys, KEY_NUM * sizeof(K)));
-  CUDA_CHECK(cudaMalloc(&d_scores, KEY_NUM * sizeof(S)));
-  CUDA_CHECK(cudaMalloc(&d_vectors, KEY_NUM * sizeof(V) * options.dim));
-  CUDA_CHECK(cudaMalloc(&d_found, KEY_NUM * sizeof(bool)));
-  CUDA_CHECK(cudaMalloc(&d_accum_or_assigns, KEY_NUM * sizeof(bool)));
+  ROCM_CHECK(hipMalloc(&d_keys, KEY_NUM * sizeof(K)));
+  ROCM_CHECK(hipMalloc(&d_scores, KEY_NUM * sizeof(S)));
+  ROCM_CHECK(hipMalloc(&d_vectors, KEY_NUM * sizeof(V) * options.dim));
+  ROCM_CHECK(hipMalloc(&d_found, KEY_NUM * sizeof(bool)));
+  ROCM_CHECK(hipMalloc(&d_accum_or_assigns, KEY_NUM * sizeof(bool)));
 
-  cudaStream_t stream;
-  CUDA_CHECK(cudaStreamCreate(&stream));
+  hipStream_t stream;
+  ROCM_CHECK(hipStreamCreate(&stream));
 
   uint64_t total_size = 0;
   for (int i = 0; i < TEST_TIMES; i++) {
@@ -213,27 +215,27 @@ void test_erase_if_pred(size_t max_hbm_for_vectors, int key_start) {
         h_keys, h_scores, h_vectors, KEY_NUM, INIT_CAPACITY);
 
     test_util::create_random_bools<K>(h_accum_or_assigns, KEY_NUM, true_ratio);
-    CUDA_CHECK(cudaMemcpy(d_keys, h_keys, KEY_NUM * sizeof(K),
-                          cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_scores, h_scores, KEY_NUM * sizeof(S),
-                          cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_vectors, h_vectors,
+    ROCM_CHECK(hipMemcpy(d_keys, h_keys, KEY_NUM * sizeof(K),
+                          hipMemcpyHostToDevice));
+    ROCM_CHECK(hipMemcpy(d_scores, h_scores, KEY_NUM * sizeof(S),
+                          hipMemcpyHostToDevice));
+    ROCM_CHECK(hipMemcpy(d_vectors, h_vectors,
                           KEY_NUM * sizeof(V) * options.dim,
-                          cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_accum_or_assigns, h_accum_or_assigns,
-                          KEY_NUM * sizeof(bool), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemset(d_found, 0, KEY_NUM * sizeof(bool)));
+                          hipMemcpyHostToDevice));
+    ROCM_CHECK(hipMemcpy(d_accum_or_assigns, h_accum_or_assigns,
+                          KEY_NUM * sizeof(bool), hipMemcpyHostToDevice));
+    ROCM_CHECK(hipMemset(d_found, 0, KEY_NUM * sizeof(bool)));
 
     total_size = table->size(stream);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
     ASSERT_EQ(total_size, 0);
 
     table->accum_or_assign(KEY_NUM, d_keys, d_vectors, d_accum_or_assigns,
                            d_scores, stream);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
 
     total_size = table->size(stream);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
 
     size_t expected_size = 0;
     for (size_t i = 0; i < KEY_NUM; i++) {
@@ -246,24 +248,24 @@ void test_erase_if_pred(size_t max_hbm_for_vectors, int key_start) {
     size_t erase_num = table->template erase_if<EraseIfPredFunctor>(
         pattern, threshold, stream);
     total_size = table->size(stream);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
     ASSERT_EQ((erase_num + total_size), expected_size);
 
-    CUDA_CHECK(cudaMemset(d_vectors, 0, KEY_NUM * sizeof(V) * options.dim));
+    ROCM_CHECK(hipMemset(d_vectors, 0, KEY_NUM * sizeof(V) * options.dim));
     table->find(KEY_NUM, d_keys, d_vectors, d_found, d_scores, stream);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
     int found_num = 0;
 
-    CUDA_CHECK(cudaMemset(h_found, 0, KEY_NUM * sizeof(bool)));
-    CUDA_CHECK(cudaMemset(h_scores, 0, KEY_NUM * sizeof(S)));
-    CUDA_CHECK(cudaMemset(h_vectors, 0, KEY_NUM * sizeof(V) * options.dim));
-    CUDA_CHECK(cudaMemcpy(h_found, d_found, KEY_NUM * sizeof(bool),
-                          cudaMemcpyDeviceToHost));
-    CUDA_CHECK(cudaMemcpy(h_scores, d_scores, KEY_NUM * sizeof(S),
-                          cudaMemcpyDeviceToHost));
-    CUDA_CHECK(cudaMemcpy(h_vectors, d_vectors,
+    ROCM_CHECK(hipMemset(h_found, 0, KEY_NUM * sizeof(bool)));
+    ROCM_CHECK(hipMemset(h_scores, 0, KEY_NUM * sizeof(S)));
+    ROCM_CHECK(hipMemset(h_vectors, 0, KEY_NUM * sizeof(V) * options.dim));
+    ROCM_CHECK(hipMemcpy(h_found, d_found, KEY_NUM * sizeof(bool),
+                          hipMemcpyDeviceToHost));
+    ROCM_CHECK(hipMemcpy(h_scores, d_scores, KEY_NUM * sizeof(S),
+                          hipMemcpyDeviceToHost));
+    ROCM_CHECK(hipMemcpy(h_vectors, d_vectors,
                           KEY_NUM * sizeof(V) * options.dim,
-                          cudaMemcpyDeviceToHost));
+                          hipMemcpyDeviceToHost));
     for (int i = 0; i < KEY_NUM; i++) {
       if (h_found[i]) {
         found_num++;
@@ -278,25 +280,25 @@ void test_erase_if_pred(size_t max_hbm_for_vectors, int key_start) {
 
     table->clear(stream);
     total_size = table->size(stream);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
     ASSERT_EQ(total_size, 0);
   }
-  CUDA_CHECK(cudaStreamDestroy(stream));
+  ROCM_CHECK(hipStreamDestroy(stream));
 
-  CUDA_CHECK(cudaMemcpy(h_vectors, d_vectors, KEY_NUM * sizeof(V) * options.dim,
-                        cudaMemcpyDeviceToHost));
+  ROCM_CHECK(hipMemcpy(h_vectors, d_vectors, KEY_NUM * sizeof(V) * options.dim,
+                        hipMemcpyDeviceToHost));
 
-  CUDA_CHECK(cudaFreeHost(h_keys));
-  CUDA_CHECK(cudaFreeHost(h_scores));
-  CUDA_CHECK(cudaFreeHost(h_found));
-  CUDA_CHECK(cudaFreeHost(h_accum_or_assigns));
+  ROCM_CHECK(hipHostFree(h_keys));
+  ROCM_CHECK(hipHostFree(h_scores));
+  ROCM_CHECK(hipHostFree(h_found));
+  ROCM_CHECK(hipHostFree(h_accum_or_assigns));
 
-  CUDA_CHECK(cudaFree(d_keys));
-  CUDA_CHECK(cudaFree(d_scores));
-  CUDA_CHECK(cudaFree(d_vectors));
-  CUDA_CHECK(cudaFree(d_found));
-  CUDA_CHECK(cudaFree(d_accum_or_assigns));
-  CUDA_CHECK(cudaDeviceSynchronize());
+  ROCM_CHECK(hipFree(d_keys));
+  ROCM_CHECK(hipFree(d_scores));
+  ROCM_CHECK(hipFree(d_vectors));
+  ROCM_CHECK(hipFree(d_found));
+  ROCM_CHECK(hipFree(d_accum_or_assigns));
+  ROCM_CHECK(hipDeviceSynchronize());
 
   CudaCheckError();
 }
@@ -324,11 +326,11 @@ void test_rehash(size_t max_hbm_for_vectors, int key_start) {
   options.max_hbm_for_vectors = nv::merlin::GB(max_hbm_for_vectors);
   using Table = nv::merlin::HashTable<K, V, S, EvictStrategy::kCustomized>;
 
-  CUDA_CHECK(cudaMallocHost(&h_keys, KEY_NUM * sizeof(K)));
-  CUDA_CHECK(cudaMallocHost(&h_scores, KEY_NUM * sizeof(S)));
-  CUDA_CHECK(cudaMallocHost(&h_vectors, KEY_NUM * sizeof(V) * options.dim));
-  CUDA_CHECK(cudaMallocHost(&h_found, KEY_NUM * sizeof(bool)));
-  CUDA_CHECK(cudaMallocHost(&h_accum_or_assigns, KEY_NUM * sizeof(bool)));
+  ROCM_CHECK(hipHostMalloc(&h_keys, KEY_NUM * sizeof(K)));
+  ROCM_CHECK(hipHostMalloc(&h_scores, KEY_NUM * sizeof(S)));
+  ROCM_CHECK(hipHostMalloc(&h_vectors, KEY_NUM * sizeof(V) * options.dim));
+  ROCM_CHECK(hipHostMalloc(&h_found, KEY_NUM * sizeof(bool)));
+  ROCM_CHECK(hipHostMalloc(&h_accum_or_assigns, KEY_NUM * sizeof(bool)));
 
   K* d_keys;
   S* d_scores = nullptr;
@@ -337,14 +339,14 @@ void test_rehash(size_t max_hbm_for_vectors, int key_start) {
   bool* d_accum_or_assigns;
   size_t dump_counter = 0;
 
-  CUDA_CHECK(cudaMalloc(&d_keys, KEY_NUM * sizeof(K)));
-  CUDA_CHECK(cudaMalloc(&d_scores, KEY_NUM * sizeof(S)));
-  CUDA_CHECK(cudaMalloc(&d_vectors, KEY_NUM * sizeof(V) * options.dim));
-  CUDA_CHECK(cudaMalloc(&d_found, KEY_NUM * sizeof(bool)));
-  CUDA_CHECK(cudaMalloc(&d_accum_or_assigns, KEY_NUM * sizeof(bool)));
+  ROCM_CHECK(hipMalloc(&d_keys, KEY_NUM * sizeof(K)));
+  ROCM_CHECK(hipMalloc(&d_scores, KEY_NUM * sizeof(S)));
+  ROCM_CHECK(hipMalloc(&d_vectors, KEY_NUM * sizeof(V) * options.dim));
+  ROCM_CHECK(hipMalloc(&d_found, KEY_NUM * sizeof(bool)));
+  ROCM_CHECK(hipMalloc(&d_accum_or_assigns, KEY_NUM * sizeof(bool)));
 
-  cudaStream_t stream;
-  CUDA_CHECK(cudaStreamCreate(&stream));
+  hipStream_t stream;
+  ROCM_CHECK(hipStreamCreate(&stream));
 
   uint64_t total_size = 0;
   for (int i = 0; i < TEST_TIMES; i++) {
@@ -354,27 +356,27 @@ void test_rehash(size_t max_hbm_for_vectors, int key_start) {
     test_util::create_random_bools<K>(h_accum_or_assigns, KEY_NUM, true_ratio);
     test_util::create_keys_in_one_buckets<K, S, V, DIM>(
         h_keys, h_scores, h_vectors, KEY_NUM, INIT_CAPACITY, BUCKET_MAX_SIZE);
-    CUDA_CHECK(cudaMemcpy(d_keys, h_keys, KEY_NUM * sizeof(K),
-                          cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_scores, h_scores, KEY_NUM * sizeof(S),
-                          cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_vectors, h_vectors,
+    ROCM_CHECK(hipMemcpy(d_keys, h_keys, KEY_NUM * sizeof(K),
+                          hipMemcpyHostToDevice));
+    ROCM_CHECK(hipMemcpy(d_scores, h_scores, KEY_NUM * sizeof(S),
+                          hipMemcpyHostToDevice));
+    ROCM_CHECK(hipMemcpy(d_vectors, h_vectors,
                           KEY_NUM * sizeof(V) * options.dim,
-                          cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_accum_or_assigns, h_accum_or_assigns,
-                          KEY_NUM * sizeof(bool), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemset(d_found, 0, KEY_NUM * sizeof(bool)));
+                          hipMemcpyHostToDevice));
+    ROCM_CHECK(hipMemcpy(d_accum_or_assigns, h_accum_or_assigns,
+                          KEY_NUM * sizeof(bool), hipMemcpyHostToDevice));
+    ROCM_CHECK(hipMemset(d_found, 0, KEY_NUM * sizeof(bool)));
 
     total_size = table->size(stream);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
     ASSERT_EQ(total_size, 0);
 
     table->accum_or_assign(KEY_NUM, d_keys, d_vectors, d_accum_or_assigns,
                            d_scores, stream);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
 
     total_size = table->size(stream);
-    CUDA_CHECK(cudaDeviceSynchronize());
+    ROCM_CHECK(hipDeviceSynchronize());
 
     size_t expected_size = 0;
     for (size_t i = 0; i < KEY_NUM; i++) {
@@ -384,36 +386,36 @@ void test_rehash(size_t max_hbm_for_vectors, int key_start) {
 
     dump_counter = table->export_batch(table->capacity(), 0, d_keys, d_vectors,
                                        d_scores, stream);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
     ASSERT_EQ(dump_counter, expected_size);
 
     table->reserve(MAX_CAPACITY, stream);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
     ASSERT_EQ(table->capacity(), MAX_CAPACITY);
 
     total_size = table->size(stream);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
     ASSERT_EQ(total_size, expected_size);
 
-    CUDA_CHECK(cudaMemcpy(d_keys, h_keys, KEY_NUM * sizeof(K),
-                          cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemset(d_vectors, 0, KEY_NUM * sizeof(V) * options.dim));
+    ROCM_CHECK(hipMemcpy(d_keys, h_keys, KEY_NUM * sizeof(K),
+                          hipMemcpyHostToDevice));
+    ROCM_CHECK(hipMemset(d_vectors, 0, KEY_NUM * sizeof(V) * options.dim));
     table->find(KEY_NUM, d_keys, d_vectors, d_found, d_scores, stream);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
     int found_num = 0;
 
-    CUDA_CHECK(cudaMemset(h_found, 0, KEY_NUM * sizeof(bool)));
-    CUDA_CHECK(cudaMemset(h_scores, 0, KEY_NUM * sizeof(S)));
-    CUDA_CHECK(cudaMemset(h_vectors, 0, KEY_NUM * sizeof(V) * options.dim));
-    CUDA_CHECK(cudaMemcpy(h_keys, d_keys, KEY_NUM * sizeof(K),
-                          cudaMemcpyDeviceToHost));
-    CUDA_CHECK(cudaMemcpy(h_found, d_found, KEY_NUM * sizeof(bool),
-                          cudaMemcpyDeviceToHost));
-    CUDA_CHECK(cudaMemcpy(h_scores, d_scores, KEY_NUM * sizeof(S),
-                          cudaMemcpyDeviceToHost));
-    CUDA_CHECK(cudaMemcpy(h_vectors, d_vectors,
+    ROCM_CHECK(hipMemset(h_found, 0, KEY_NUM * sizeof(bool)));
+    ROCM_CHECK(hipMemset(h_scores, 0, KEY_NUM * sizeof(S)));
+    ROCM_CHECK(hipMemset(h_vectors, 0, KEY_NUM * sizeof(V) * options.dim));
+    ROCM_CHECK(hipMemcpy(h_keys, d_keys, KEY_NUM * sizeof(K),
+                          hipMemcpyDeviceToHost));
+    ROCM_CHECK(hipMemcpy(h_found, d_found, KEY_NUM * sizeof(bool),
+                          hipMemcpyDeviceToHost));
+    ROCM_CHECK(hipMemcpy(h_scores, d_scores, KEY_NUM * sizeof(S),
+                          hipMemcpyDeviceToHost));
+    ROCM_CHECK(hipMemcpy(h_vectors, d_vectors,
                           KEY_NUM * sizeof(V) * options.dim,
-                          cudaMemcpyDeviceToHost));
+                          hipMemcpyDeviceToHost));
     for (int i = 0; i < KEY_NUM; i++) {
       if (h_found[i]) {
         found_num++;
@@ -428,26 +430,26 @@ void test_rehash(size_t max_hbm_for_vectors, int key_start) {
 
     table->clear(stream);
     total_size = table->size(stream);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
     ASSERT_EQ(total_size, 0);
   }
-  CUDA_CHECK(cudaStreamDestroy(stream));
+  ROCM_CHECK(hipStreamDestroy(stream));
 
-  CUDA_CHECK(cudaMemcpy(h_vectors, d_vectors, KEY_NUM * sizeof(V) * options.dim,
-                        cudaMemcpyDeviceToHost));
+  ROCM_CHECK(hipMemcpy(h_vectors, d_vectors, KEY_NUM * sizeof(V) * options.dim,
+                        hipMemcpyDeviceToHost));
 
-  CUDA_CHECK(cudaFreeHost(h_keys));
-  CUDA_CHECK(cudaFreeHost(h_scores));
-  CUDA_CHECK(cudaFreeHost(h_found));
-  CUDA_CHECK(cudaFreeHost(h_accum_or_assigns));
+  ROCM_CHECK(hipHostFree(h_keys));
+  ROCM_CHECK(hipHostFree(h_scores));
+  ROCM_CHECK(hipHostFree(h_found));
+  ROCM_CHECK(hipHostFree(h_accum_or_assigns));
 
-  CUDA_CHECK(cudaFree(d_keys));
-  CUDA_CHECK(cudaFree(d_scores));
-  CUDA_CHECK(cudaFree(d_vectors));
-  CUDA_CHECK(cudaFree(d_found));
-  CUDA_CHECK(cudaFree(d_accum_or_assigns));
+  ROCM_CHECK(hipFree(d_keys));
+  ROCM_CHECK(hipFree(d_scores));
+  ROCM_CHECK(hipFree(d_vectors));
+  ROCM_CHECK(hipFree(d_found));
+  ROCM_CHECK(hipFree(d_accum_or_assigns));
 
-  CUDA_CHECK(cudaDeviceSynchronize());
+  ROCM_CHECK(hipDeviceSynchronize());
 
   CudaCheckError();
 }
@@ -477,12 +479,12 @@ void test_rehash_on_big_batch(size_t max_hbm_for_vectors, int key_start) {
   options.max_hbm_for_vectors = nv::merlin::GB(max_hbm_for_vectors);
   using Table = nv::merlin::HashTable<K, V, S, EvictStrategy::kCustomized>;
 
-  CUDA_CHECK(cudaMallocHost(&h_keys, KEY_NUM * sizeof(K)));
-  CUDA_CHECK(cudaMallocHost(&h_scores, KEY_NUM * sizeof(S)));
-  CUDA_CHECK(cudaMallocHost(&h_vectors, KEY_NUM * sizeof(V) * options.dim));
-  CUDA_CHECK(cudaMallocHost(&h_found, KEY_NUM * sizeof(bool)));
-  CUDA_CHECK(cudaMallocHost(&h_accum_or_assigns, KEY_NUM * sizeof(bool)));
-  CUDA_CHECK(cudaMallocHost(&h_accum_or_assigns_init, KEY_NUM * sizeof(bool)));
+  ROCM_CHECK(hipHostMalloc(&h_keys, KEY_NUM * sizeof(K)));
+  ROCM_CHECK(hipHostMalloc(&h_scores, KEY_NUM * sizeof(S)));
+  ROCM_CHECK(hipHostMalloc(&h_vectors, KEY_NUM * sizeof(V) * options.dim));
+  ROCM_CHECK(hipHostMalloc(&h_found, KEY_NUM * sizeof(bool)));
+  ROCM_CHECK(hipHostMalloc(&h_accum_or_assigns, KEY_NUM * sizeof(bool)));
+  ROCM_CHECK(hipHostMalloc(&h_accum_or_assigns_init, KEY_NUM * sizeof(bool)));
 
   K* d_keys;
   S* d_scores = nullptr;
@@ -491,14 +493,14 @@ void test_rehash_on_big_batch(size_t max_hbm_for_vectors, int key_start) {
   bool* d_found;
   size_t dump_counter = 0;
 
-  CUDA_CHECK(cudaMalloc(&d_keys, KEY_NUM * sizeof(K)));
-  CUDA_CHECK(cudaMalloc(&d_scores, KEY_NUM * sizeof(S)));
-  CUDA_CHECK(cudaMalloc(&d_vectors, KEY_NUM * sizeof(V) * options.dim));
-  CUDA_CHECK(cudaMalloc(&d_accum_or_assigns, KEY_NUM * sizeof(bool)));
-  CUDA_CHECK(cudaMalloc(&d_found, KEY_NUM * sizeof(bool)));
+  ROCM_CHECK(hipMalloc(&d_keys, KEY_NUM * sizeof(K)));
+  ROCM_CHECK(hipMalloc(&d_scores, KEY_NUM * sizeof(S)));
+  ROCM_CHECK(hipMalloc(&d_vectors, KEY_NUM * sizeof(V) * options.dim));
+  ROCM_CHECK(hipMalloc(&d_accum_or_assigns, KEY_NUM * sizeof(bool)));
+  ROCM_CHECK(hipMalloc(&d_found, KEY_NUM * sizeof(bool)));
 
-  cudaStream_t stream;
-  CUDA_CHECK(cudaStreamCreate(&stream));
+  hipStream_t stream;
+  ROCM_CHECK(hipStreamCreate(&stream));
 
   uint64_t total_size = 0;
   uint64_t expected_size = 0;
@@ -508,27 +510,27 @@ void test_rehash_on_big_batch(size_t max_hbm_for_vectors, int key_start) {
   test_util::create_random_keys<K, S, V, DIM>(h_keys, h_scores, h_vectors,
                                               KEY_NUM);
 
-  CUDA_CHECK(
-      cudaMemcpy(d_keys, h_keys, KEY_NUM * sizeof(K), cudaMemcpyHostToDevice));
-  CUDA_CHECK(cudaMemcpy(d_scores, h_scores, KEY_NUM * sizeof(S),
-                        cudaMemcpyHostToDevice));
-  CUDA_CHECK(cudaMemcpy(d_vectors, h_vectors, KEY_NUM * sizeof(V) * options.dim,
-                        cudaMemcpyHostToDevice));
-  CUDA_CHECK(cudaMemset(d_found, 0, KEY_NUM * sizeof(bool)));
-  CUDA_CHECK(cudaMemset(d_accum_or_assigns, 0, KEY_NUM * sizeof(bool)));
+  ROCM_CHECK(
+      hipMemcpy(d_keys, h_keys, KEY_NUM * sizeof(K), hipMemcpyHostToDevice));
+  ROCM_CHECK(hipMemcpy(d_scores, h_scores, KEY_NUM * sizeof(S),
+                        hipMemcpyHostToDevice));
+  ROCM_CHECK(hipMemcpy(d_vectors, h_vectors, KEY_NUM * sizeof(V) * options.dim,
+                        hipMemcpyHostToDevice));
+  ROCM_CHECK(hipMemset(d_found, 0, KEY_NUM * sizeof(bool)));
+  ROCM_CHECK(hipMemset(d_accum_or_assigns, 0, KEY_NUM * sizeof(bool)));
 
   total_size = table->size(stream);
-  CUDA_CHECK(cudaStreamSynchronize(stream));
+  ROCM_CHECK(hipStreamSynchronize(stream));
   ASSERT_EQ(total_size, 0);
 
   test_util::create_random_bools<K>(h_accum_or_assigns, INIT_KEY_NUM,
                                     true_ratio);
-  CUDA_CHECK(cudaMemcpy(d_accum_or_assigns, h_accum_or_assigns,
-                        INIT_KEY_NUM * sizeof(bool), cudaMemcpyHostToDevice));
+  ROCM_CHECK(hipMemcpy(d_accum_or_assigns, h_accum_or_assigns,
+                        INIT_KEY_NUM * sizeof(bool), hipMemcpyHostToDevice));
 
   table->accum_or_assign(INIT_KEY_NUM, d_keys, d_vectors, d_accum_or_assigns,
                          d_scores, stream);
-  CUDA_CHECK(cudaStreamSynchronize(stream));
+  ROCM_CHECK(hipStreamSynchronize(stream));
   ASSERT_GE(table->capacity(), INIT_CAPACITY * 2);
 
   expected_size = 0;
@@ -536,19 +538,19 @@ void test_rehash_on_big_batch(size_t max_hbm_for_vectors, int key_start) {
     expected_size += (h_accum_or_assigns[i] ? 0 : 1);
 
   total_size = table->size(stream);
-  CUDA_CHECK(cudaDeviceSynchronize());
+  ROCM_CHECK(hipDeviceSynchronize());
   ASSERT_EQ(total_size, expected_size);
   ASSERT_EQ(table->capacity(), (INIT_CAPACITY * 2));
 
-  CUDA_CHECK(cudaMemcpy(h_accum_or_assigns_init, h_accum_or_assigns,
-                        KEY_NUM * sizeof(bool), cudaMemcpyHostToHost));
+  ROCM_CHECK(hipMemcpy(h_accum_or_assigns_init, h_accum_or_assigns,
+                        KEY_NUM * sizeof(bool), hipMemcpyHostToHost));
   test_util::create_random_bools<K>(h_accum_or_assigns, KEY_NUM, true_ratio);
-  CUDA_CHECK(cudaMemcpy(d_accum_or_assigns, h_accum_or_assigns,
-                        KEY_NUM * sizeof(bool), cudaMemcpyHostToDevice));
+  ROCM_CHECK(hipMemcpy(d_accum_or_assigns, h_accum_or_assigns,
+                        KEY_NUM * sizeof(bool), hipMemcpyHostToDevice));
 
   table->accum_or_assign(KEY_NUM, d_keys, d_vectors, d_accum_or_assigns,
                          d_scores, stream);
-  CUDA_CHECK(cudaStreamSynchronize(stream));
+  ROCM_CHECK(hipStreamSynchronize(stream));
 
   expected_size = 0;
   for (int i = 0; i < KEY_NUM; i++) {
@@ -575,34 +577,34 @@ void test_rehash_on_big_batch(size_t max_hbm_for_vectors, int key_start) {
   }
 
   total_size = table->size(stream);
-  CUDA_CHECK(cudaDeviceSynchronize());
+  ROCM_CHECK(hipDeviceSynchronize());
   ASSERT_EQ(total_size, expected_size);
   ASSERT_GE(table->capacity(), KEY_NUM * 2);
 
   dump_counter = table->export_batch(table->capacity(), 0, d_keys, d_vectors,
                                      d_scores, stream);
-  CUDA_CHECK(cudaStreamSynchronize(stream));
+  ROCM_CHECK(hipStreamSynchronize(stream));
   ASSERT_EQ(dump_counter, expected_size);
 
-  CUDA_CHECK(
-      cudaMemcpy(d_keys, h_keys, KEY_NUM * sizeof(K), cudaMemcpyHostToDevice));
-  CUDA_CHECK(cudaMemset(d_vectors, 0, KEY_NUM * sizeof(V) * options.dim));
-  CUDA_CHECK(cudaMemset(d_scores, 0, KEY_NUM * sizeof(S)));
+  ROCM_CHECK(
+      hipMemcpy(d_keys, h_keys, KEY_NUM * sizeof(K), hipMemcpyHostToDevice));
+  ROCM_CHECK(hipMemset(d_vectors, 0, KEY_NUM * sizeof(V) * options.dim));
+  ROCM_CHECK(hipMemset(d_scores, 0, KEY_NUM * sizeof(S)));
   table->find(KEY_NUM, d_keys, d_vectors, d_found, d_scores, stream);
-  CUDA_CHECK(cudaStreamSynchronize(stream));
+  ROCM_CHECK(hipStreamSynchronize(stream));
   int found_num = 0;
 
-  CUDA_CHECK(cudaMemset(h_found, 0, KEY_NUM * sizeof(bool)));
-  CUDA_CHECK(cudaMemset(h_scores, 0, KEY_NUM * sizeof(S)));
-  CUDA_CHECK(cudaMemset(h_vectors, 0, KEY_NUM * sizeof(V) * options.dim));
-  CUDA_CHECK(
-      cudaMemcpy(h_keys, d_keys, KEY_NUM * sizeof(K), cudaMemcpyDeviceToHost));
-  CUDA_CHECK(cudaMemcpy(h_found, d_found, KEY_NUM * sizeof(bool),
-                        cudaMemcpyDeviceToHost));
-  CUDA_CHECK(cudaMemcpy(h_scores, d_scores, KEY_NUM * sizeof(S),
-                        cudaMemcpyDeviceToHost));
-  CUDA_CHECK(cudaMemcpy(h_vectors, d_vectors, KEY_NUM * sizeof(V) * options.dim,
-                        cudaMemcpyDeviceToHost));
+  ROCM_CHECK(hipMemset(h_found, 0, KEY_NUM * sizeof(bool)));
+  ROCM_CHECK(hipMemset(h_scores, 0, KEY_NUM * sizeof(S)));
+  ROCM_CHECK(hipMemset(h_vectors, 0, KEY_NUM * sizeof(V) * options.dim));
+  ROCM_CHECK(
+      hipMemcpy(h_keys, d_keys, KEY_NUM * sizeof(K), hipMemcpyDeviceToHost));
+  ROCM_CHECK(hipMemcpy(h_found, d_found, KEY_NUM * sizeof(bool),
+                        hipMemcpyDeviceToHost));
+  ROCM_CHECK(hipMemcpy(h_scores, d_scores, KEY_NUM * sizeof(S),
+                        hipMemcpyDeviceToHost));
+  ROCM_CHECK(hipMemcpy(h_vectors, d_vectors, KEY_NUM * sizeof(V) * options.dim,
+                        hipMemcpyDeviceToHost));
   for (int i = 0; i < KEY_NUM; i++) {
     if (h_found[i]) {
       found_num++;
@@ -616,25 +618,25 @@ void test_rehash_on_big_batch(size_t max_hbm_for_vectors, int key_start) {
 
   table->clear(stream);
   total_size = table->size(stream);
-  CUDA_CHECK(cudaStreamSynchronize(stream));
+  ROCM_CHECK(hipStreamSynchronize(stream));
   ASSERT_EQ(total_size, 0);
-  CUDA_CHECK(cudaStreamDestroy(stream));
+  ROCM_CHECK(hipStreamDestroy(stream));
 
-  CUDA_CHECK(cudaMemcpy(h_vectors, d_vectors, KEY_NUM * sizeof(V) * options.dim,
-                        cudaMemcpyDeviceToHost));
+  ROCM_CHECK(hipMemcpy(h_vectors, d_vectors, KEY_NUM * sizeof(V) * options.dim,
+                        hipMemcpyDeviceToHost));
 
-  CUDA_CHECK(cudaFreeHost(h_keys));
-  CUDA_CHECK(cudaFreeHost(h_scores));
-  CUDA_CHECK(cudaFreeHost(h_accum_or_assigns));
-  CUDA_CHECK(cudaFreeHost(h_accum_or_assigns_init));
-  CUDA_CHECK(cudaFreeHost(h_found));
+  ROCM_CHECK(hipHostFree(h_keys));
+  ROCM_CHECK(hipHostFree(h_scores));
+  ROCM_CHECK(hipHostFree(h_accum_or_assigns));
+  ROCM_CHECK(hipHostFree(h_accum_or_assigns_init));
+  ROCM_CHECK(hipHostFree(h_found));
 
-  CUDA_CHECK(cudaFree(d_keys));
-  CUDA_CHECK(cudaFree(d_scores));
-  CUDA_CHECK(cudaFree(d_vectors));
-  CUDA_CHECK(cudaFree(d_accum_or_assigns));
-  CUDA_CHECK(cudaFree(d_found));
-  CUDA_CHECK(cudaDeviceSynchronize());
+  ROCM_CHECK(hipFree(d_keys));
+  ROCM_CHECK(hipFree(d_scores));
+  ROCM_CHECK(hipFree(d_vectors));
+  ROCM_CHECK(hipFree(d_accum_or_assigns));
+  ROCM_CHECK(hipFree(d_found));
+  ROCM_CHECK(hipDeviceSynchronize());
 
   CudaCheckError();
 }
@@ -669,50 +671,50 @@ void test_rehash_on_big_batch(size_t max_hbm_for_vectors, int key_start) {
 //
 //    size_t current_capacity = table->capacity();
 //
-//    CUDA_CHECK(cudaMallocHost(&h_keys, KEY_NUM * sizeof(K)));
-//    CUDA_CHECK(cudaMallocHost(&h_vectors, KEY_NUM * sizeof(V) * options.dim));
-//    CUDA_CHECK(cudaMallocHost(&h_found, KEY_NUM * sizeof(bool)));
+//    ROCM_CHECK(hipHostMalloc(&h_keys, KEY_NUM * sizeof(K)));
+//    ROCM_CHECK(hipHostMalloc(&h_vectors, KEY_NUM * sizeof(V) * options.dim));
+//    ROCM_CHECK(hipHostMalloc(&h_found, KEY_NUM * sizeof(bool)));
 //
 //    K* d_keys;
 //    V* d_vectors;
 //    bool* d_found;
 //
-//    CUDA_CHECK(cudaMalloc(&d_keys, KEY_NUM * sizeof(K)));
-//    CUDA_CHECK(cudaMalloc(&d_vectors, KEY_NUM * sizeof(V) * options.dim));
-//    CUDA_CHECK(cudaMalloc(&d_found, KEY_NUM * sizeof(bool)));
+//    ROCM_CHECK(hipMalloc(&d_keys, KEY_NUM * sizeof(K)));
+//    ROCM_CHECK(hipMalloc(&d_vectors, KEY_NUM * sizeof(V) * options.dim));
+//    ROCM_CHECK(hipMalloc(&d_found, KEY_NUM * sizeof(bool)));
 //
-//    cudaStream_t stream;
-//    CUDA_CHECK(cudaStreamCreate(&stream));
+//    hipStream_t stream;
+//    ROCM_CHECK(hipStreamCreate(&stream));
 //
 //    while (table->capacity() < MAX_CAPACITY) {
 //      test_util::create_random_keys<K, S, V, DIM>(h_keys, nullptr, h_vectors,
 //                                                  KEY_NUM);
-//      CUDA_CHECK(cudaMemcpy(d_keys, h_keys, KEY_NUM * sizeof(K),
-//                            cudaMemcpyHostToDevice));
-//      CUDA_CHECK(cudaMemcpy(d_vectors, h_vectors,
+//      ROCM_CHECK(hipMemcpy(d_keys, h_keys, KEY_NUM * sizeof(K),
+//                            hipMemcpyHostToDevice));
+//      ROCM_CHECK(hipMemcpy(d_vectors, h_vectors,
 //                            KEY_NUM * sizeof(V) * options.dim,
-//                            cudaMemcpyHostToDevice));
-//      CUDA_CHECK(cudaMemset(d_found, 0, KEY_NUM * sizeof(bool)));
+//                            hipMemcpyHostToDevice));
+//      ROCM_CHECK(hipMemset(d_found, 0, KEY_NUM * sizeof(bool)));
 //
 //      table->accum_or_assign(KEY_NUM, d_keys, d_vectors, nullptr, stream);
-//      CUDA_CHECK(cudaStreamSynchronize(stream));
+//      ROCM_CHECK(hipStreamSynchronize(stream));
 //
-//      CUDA_CHECK(cudaMemset(d_vectors, 0, KEY_NUM * sizeof(V) * options.dim));
+//      ROCM_CHECK(hipMemset(d_vectors, 0, KEY_NUM * sizeof(V) * options.dim));
 //      table->find(KEY_NUM, d_keys, d_vectors, d_found, nullptr, stream);
 //
-//      CUDA_CHECK(cudaStreamSynchronize(stream));
+//      ROCM_CHECK(hipStreamSynchronize(stream));
 //      int found_num = 0;
 //
-//      CUDA_CHECK(cudaMemset(h_found, 0, KEY_NUM * sizeof(bool)));
-//      CUDA_CHECK(cudaMemset(h_vectors, 0, KEY_NUM * sizeof(V) * options.dim));
-//      CUDA_CHECK(cudaMemcpy(h_keys, d_keys, KEY_NUM * sizeof(K),
-//                            cudaMemcpyDeviceToHost));
-//      CUDA_CHECK(cudaMemcpy(h_found, d_found, KEY_NUM * sizeof(bool),
-//                            cudaMemcpyDeviceToHost));
+//      ROCM_CHECK(hipMemset(h_found, 0, KEY_NUM * sizeof(bool)));
+//      ROCM_CHECK(hipMemset(h_vectors, 0, KEY_NUM * sizeof(V) * options.dim));
+//      ROCM_CHECK(hipMemcpy(h_keys, d_keys, KEY_NUM * sizeof(K),
+//                            hipMemcpyDeviceToHost));
+//      ROCM_CHECK(hipMemcpy(h_found, d_found, KEY_NUM * sizeof(bool),
+//                            hipMemcpyDeviceToHost));
 //
-//      CUDA_CHECK(cudaMemcpy(h_vectors, d_vectors,
+//      ROCM_CHECK(hipMemcpy(h_vectors, d_vectors,
 //                            KEY_NUM * sizeof(V) * options.dim,
-//                            cudaMemcpyDeviceToHost));
+//                            hipMemcpyDeviceToHost));
 //      for (int i = 0; i < KEY_NUM; i++) {
 //        if (h_found[i]) {
 //          found_num++;
@@ -730,22 +732,22 @@ void test_rehash_on_big_batch(size_t max_hbm_for_vectors, int key_start) {
 //                  << std::endl;
 //        current_capacity = table->capacity();
 //      }
-//      CUDA_CHECK(cudaStreamSynchronize(stream));
+//      ROCM_CHECK(hipStreamSynchronize(stream));
 //    }
-//    CUDA_CHECK(cudaStreamDestroy(stream));
+//    ROCM_CHECK(hipStreamDestroy(stream));
 //
-//    CUDA_CHECK(cudaMemcpy(h_vectors, d_vectors,
+//    ROCM_CHECK(hipMemcpy(h_vectors, d_vectors,
 //                          KEY_NUM * sizeof(V) * options.dim,
-//                          cudaMemcpyDeviceToHost));
+//                          hipMemcpyDeviceToHost));
 //
-//    CUDA_CHECK(cudaFreeHost(h_keys));
-//    CUDA_CHECK(cudaFreeHost(h_found));
-//    CUDA_CHECK(cudaFreeHost(h_vectors));
+//    ROCM_CHECK(hipHostFree(h_keys));
+//    ROCM_CHECK(hipHostFree(h_found));
+//    ROCM_CHECK(hipHostFree(h_vectors));
 //
-//    CUDA_CHECK(cudaFree(d_keys));
-//    CUDA_CHECK(cudaFree(d_vectors));
-//    CUDA_CHECK(cudaFree(d_found));
-//    CUDA_CHECK(cudaDeviceSynchronize());
+//    ROCM_CHECK(hipFree(d_keys));
+//    ROCM_CHECK(hipFree(d_vectors));
+//    ROCM_CHECK(hipFree(d_found));
+//    ROCM_CHECK(hipDeviceSynchronize());
 //
 //    CudaCheckError();
 //  };
@@ -783,10 +785,10 @@ void test_export_batch_if(size_t max_hbm_for_vectors, int key_start) {
   std::unique_ptr<Table> table = std::make_unique<Table>();
   table->init(options);
 
-  CUDA_CHECK(cudaMallocHost(&h_keys, KEY_NUM * sizeof(K)));
-  CUDA_CHECK(cudaMallocHost(&h_scores, KEY_NUM * sizeof(S)));
-  CUDA_CHECK(cudaMallocHost(&h_accum_or_assigns, KEY_NUM * sizeof(bool)));
-  CUDA_CHECK(cudaMallocHost(&h_vectors, KEY_NUM * sizeof(V) * options.dim));
+  ROCM_CHECK(hipHostMalloc(&h_keys, KEY_NUM * sizeof(K)));
+  ROCM_CHECK(hipHostMalloc(&h_scores, KEY_NUM * sizeof(S)));
+  ROCM_CHECK(hipHostMalloc(&h_accum_or_assigns, KEY_NUM * sizeof(bool)));
+  ROCM_CHECK(hipHostMalloc(&h_vectors, KEY_NUM * sizeof(V) * options.dim));
 
   K* d_keys;
   S* d_scores = nullptr;
@@ -797,17 +799,17 @@ void test_export_batch_if(size_t max_hbm_for_vectors, int key_start) {
   int found_num = 0;
   bool* h_found;
 
-  CUDA_CHECK(cudaMalloc(&d_keys, KEY_NUM * sizeof(K)));
-  CUDA_CHECK(cudaMalloc(&d_scores, KEY_NUM * sizeof(S)));
-  CUDA_CHECK(cudaMalloc(&d_vectors, KEY_NUM * sizeof(V) * options.dim));
-  CUDA_CHECK(cudaMalloc(&d_found, KEY_NUM * sizeof(bool)));
-  CUDA_CHECK(cudaMalloc(&d_accum_or_assigns, KEY_NUM * sizeof(bool)));
-  CUDA_CHECK(cudaMalloc(&d_dump_counter, sizeof(size_t)));
+  ROCM_CHECK(hipMalloc(&d_keys, KEY_NUM * sizeof(K)));
+  ROCM_CHECK(hipMalloc(&d_scores, KEY_NUM * sizeof(S)));
+  ROCM_CHECK(hipMalloc(&d_vectors, KEY_NUM * sizeof(V) * options.dim));
+  ROCM_CHECK(hipMalloc(&d_found, KEY_NUM * sizeof(bool)));
+  ROCM_CHECK(hipMalloc(&d_accum_or_assigns, KEY_NUM * sizeof(bool)));
+  ROCM_CHECK(hipMalloc(&d_dump_counter, sizeof(size_t)));
 
-  CUDA_CHECK(cudaMallocHost(&h_found, KEY_NUM * sizeof(bool)));
+  ROCM_CHECK(hipHostMalloc(&h_found, KEY_NUM * sizeof(bool)));
 
-  cudaStream_t stream;
-  CUDA_CHECK(cudaStreamCreate(&stream));
+  hipStream_t stream;
+  ROCM_CHECK(hipStreamCreate(&stream));
 
   uint64_t total_size = 0;
   K pattern = 100;
@@ -818,23 +820,23 @@ void test_export_batch_if(size_t max_hbm_for_vectors, int key_start) {
     test_util::create_random_keys<K, S, V, DIM>(h_keys, h_scores, h_vectors,
                                                 KEY_NUM);
 
-    CUDA_CHECK(cudaMemcpy(d_keys, h_keys, KEY_NUM * sizeof(K),
-                          cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_scores, h_scores, KEY_NUM * sizeof(S),
-                          cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_accum_or_assigns, h_accum_or_assigns,
-                          KEY_NUM * sizeof(bool), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_vectors, h_vectors,
+    ROCM_CHECK(hipMemcpy(d_keys, h_keys, KEY_NUM * sizeof(K),
+                          hipMemcpyHostToDevice));
+    ROCM_CHECK(hipMemcpy(d_scores, h_scores, KEY_NUM * sizeof(S),
+                          hipMemcpyHostToDevice));
+    ROCM_CHECK(hipMemcpy(d_accum_or_assigns, h_accum_or_assigns,
+                          KEY_NUM * sizeof(bool), hipMemcpyHostToDevice));
+    ROCM_CHECK(hipMemcpy(d_vectors, h_vectors,
                           KEY_NUM * sizeof(V) * options.dim,
-                          cudaMemcpyHostToDevice));
+                          hipMemcpyHostToDevice));
 
     total_size = table->size(stream);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
     ASSERT_EQ(total_size, 0);
 
     table->accum_or_assign(KEY_NUM, d_keys, d_vectors, d_accum_or_assigns,
                            nullptr, stream);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
 
     size_t expected_size = 0;
     for (size_t i = 0; i < KEY_NUM; i++) {
@@ -842,22 +844,22 @@ void test_export_batch_if(size_t max_hbm_for_vectors, int key_start) {
     }
 
     total_size = table->size(stream);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
     ASSERT_EQ(total_size, expected_size);
 
-    CUDA_CHECK(cudaMemset(h_found, 0, KEY_NUM * sizeof(bool)));
-    CUDA_CHECK(cudaMemset(h_vectors, 0, KEY_NUM * sizeof(V) * options.dim));
+    ROCM_CHECK(hipMemset(h_found, 0, KEY_NUM * sizeof(bool)));
+    ROCM_CHECK(hipMemset(h_vectors, 0, KEY_NUM * sizeof(V) * options.dim));
 
-    CUDA_CHECK(cudaMemset(d_vectors, 0, KEY_NUM * sizeof(V) * options.dim));
+    ROCM_CHECK(hipMemset(d_vectors, 0, KEY_NUM * sizeof(V) * options.dim));
     table->find(KEY_NUM, d_keys, d_vectors, d_found, nullptr, stream);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
 
-    CUDA_CHECK(cudaMemcpy(h_found, d_found, KEY_NUM * sizeof(bool),
-                          cudaMemcpyDeviceToHost));
+    ROCM_CHECK(hipMemcpy(h_found, d_found, KEY_NUM * sizeof(bool),
+                          hipMemcpyDeviceToHost));
 
-    CUDA_CHECK(cudaMemcpy(h_vectors, d_vectors,
+    ROCM_CHECK(hipMemcpy(h_vectors, d_vectors,
                           KEY_NUM * sizeof(V) * options.dim,
-                          cudaMemcpyDeviceToHost));
+                          hipMemcpyDeviceToHost));
     found_num = 0;
     for (int i = 0; i < KEY_NUM; i++) {
       if (h_found[i]) {
@@ -874,11 +876,11 @@ void test_export_batch_if(size_t max_hbm_for_vectors, int key_start) {
         pattern, threshold, table->capacity(), 0, d_dump_counter, d_keys,
         d_vectors, d_scores, stream);
 
-    CUDA_CHECK(cudaStreamSynchronize(stream));
-    CUDA_CHECK(cudaMemcpy(&h_dump_counter, d_dump_counter, sizeof(size_t),
-                          cudaMemcpyDeviceToHost));
-    CUDA_CHECK(cudaMemcpy(h_scores, d_scores, h_dump_counter * sizeof(S),
-                          cudaMemcpyDeviceToHost));
+    ROCM_CHECK(hipStreamSynchronize(stream));
+    ROCM_CHECK(hipMemcpy(&h_dump_counter, d_dump_counter, sizeof(size_t),
+                          hipMemcpyDeviceToHost));
+    ROCM_CHECK(hipMemcpy(h_scores, d_scores, h_dump_counter * sizeof(S),
+                          hipMemcpyDeviceToHost));
 
     size_t expected_export_count = 0;
     for (int i = 0; i < h_dump_counter; i++) {
@@ -886,13 +888,13 @@ void test_export_batch_if(size_t max_hbm_for_vectors, int key_start) {
     }
     ASSERT_EQ(expected_export_count, h_dump_counter);
 
-    CUDA_CHECK(cudaMemcpy(h_keys, d_keys, KEY_NUM * sizeof(K),
-                          cudaMemcpyDeviceToHost));
-    CUDA_CHECK(cudaMemcpy(h_scores, d_scores, KEY_NUM * sizeof(S),
-                          cudaMemcpyDeviceToHost));
-    CUDA_CHECK(cudaMemcpy(h_vectors, d_vectors,
+    ROCM_CHECK(hipMemcpy(h_keys, d_keys, KEY_NUM * sizeof(K),
+                          hipMemcpyDeviceToHost));
+    ROCM_CHECK(hipMemcpy(h_scores, d_scores, KEY_NUM * sizeof(S),
+                          hipMemcpyDeviceToHost));
+    ROCM_CHECK(hipMemcpy(h_vectors, d_vectors,
                           KEY_NUM * sizeof(V) * options.dim,
-                          cudaMemcpyDeviceToHost));
+                          hipMemcpyDeviceToHost));
 
     for (int i = 0; i < h_dump_counter; i++) {
       ASSERT_GT(h_scores[i], threshold);
@@ -904,24 +906,24 @@ void test_export_batch_if(size_t max_hbm_for_vectors, int key_start) {
 
     table->clear(stream);
     total_size = table->size(stream);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
     ASSERT_EQ(total_size, 0);
   }
-  CUDA_CHECK(cudaDeviceSynchronize());
-  CUDA_CHECK(cudaStreamDestroy(stream));
+  ROCM_CHECK(hipDeviceSynchronize());
+  ROCM_CHECK(hipStreamDestroy(stream));
 
-  CUDA_CHECK(cudaFreeHost(h_keys));
-  CUDA_CHECK(cudaFreeHost(h_scores));
-  CUDA_CHECK(cudaFreeHost(h_found));
-  CUDA_CHECK(cudaFreeHost(h_accum_or_assigns));
+  ROCM_CHECK(hipHostFree(h_keys));
+  ROCM_CHECK(hipHostFree(h_scores));
+  ROCM_CHECK(hipHostFree(h_found));
+  ROCM_CHECK(hipHostFree(h_accum_or_assigns));
 
-  CUDA_CHECK(cudaFree(d_keys));
-  CUDA_CHECK(cudaFree(d_scores));
-  CUDA_CHECK(cudaFree(d_vectors));
-  CUDA_CHECK(cudaFree(d_found));
-  CUDA_CHECK(cudaFree(d_accum_or_assigns));
-  CUDA_CHECK(cudaFree(d_dump_counter));
-  CUDA_CHECK(cudaDeviceSynchronize());
+  ROCM_CHECK(hipFree(d_keys));
+  ROCM_CHECK(hipFree(d_scores));
+  ROCM_CHECK(hipFree(d_vectors));
+  ROCM_CHECK(hipFree(d_found));
+  ROCM_CHECK(hipFree(d_accum_or_assigns));
+  ROCM_CHECK(hipFree(d_dump_counter));
+  ROCM_CHECK(hipDeviceSynchronize());
 
   CudaCheckError();
 }
@@ -965,12 +967,12 @@ void test_evict_strategy_lru_basic(size_t max_hbm_for_vectors) {
   V* d_vectors_temp;
   bool* d_accum_or_assigns_temp;
 
-  CUDA_CHECK(cudaMalloc(&d_keys_temp, TEMP_KEY_NUM * sizeof(K)));
-  CUDA_CHECK(cudaMalloc(&d_scores_temp, TEMP_KEY_NUM * sizeof(S)));
-  CUDA_CHECK(
-      cudaMalloc(&d_vectors_temp, TEMP_KEY_NUM * sizeof(V) * options.dim));
+  ROCM_CHECK(hipMalloc(&d_keys_temp, TEMP_KEY_NUM * sizeof(K)));
+  ROCM_CHECK(hipMalloc(&d_scores_temp, TEMP_KEY_NUM * sizeof(S)));
+  ROCM_CHECK(
+      hipMalloc(&d_vectors_temp, TEMP_KEY_NUM * sizeof(V) * options.dim));
 
-  CUDA_CHECK(cudaMalloc(&d_accum_or_assigns_temp, TEMP_KEY_NUM * sizeof(bool)));
+  ROCM_CHECK(hipMalloc(&d_accum_or_assigns_temp, TEMP_KEY_NUM * sizeof(bool)));
 
   test_util::create_random_bools<K>(
       reinterpret_cast<bool*>(h_accum_or_assigns_base.data()), BASE_KEY_NUM,
@@ -1000,8 +1002,8 @@ void test_evict_strategy_lru_basic(size_t max_hbm_for_vectors) {
     h_vectors_test[2 * options.dim + i] = h_vectors_base[72 * options.dim + i];
     h_vectors_test[3 * options.dim + i] = h_vectors_base[73 * options.dim + i];
   }
-  cudaStream_t stream;
-  CUDA_CHECK(cudaStreamCreate(&stream));
+  hipStream_t stream;
+  ROCM_CHECK(hipStreamCreate(&stream));
 
   size_t total_size = 0;
   size_t dump_counter = 0;
@@ -1010,24 +1012,24 @@ void test_evict_strategy_lru_basic(size_t max_hbm_for_vectors) {
     table->init(options);
 
     total_size = table->size(stream);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
     ASSERT_EQ(total_size, 0);
 
     {
-      CUDA_CHECK(cudaMemcpy(d_keys_temp, h_keys_base.data(),
-                            BASE_KEY_NUM * sizeof(K), cudaMemcpyHostToDevice));
-      CUDA_CHECK(cudaMemcpy(d_scores_temp, h_scores_base.data(),
-                            BASE_KEY_NUM * sizeof(S), cudaMemcpyHostToDevice));
-      CUDA_CHECK(cudaMemcpy(d_vectors_temp, h_vectors_base.data(),
+      ROCM_CHECK(hipMemcpy(d_keys_temp, h_keys_base.data(),
+                            BASE_KEY_NUM * sizeof(K), hipMemcpyHostToDevice));
+      ROCM_CHECK(hipMemcpy(d_scores_temp, h_scores_base.data(),
+                            BASE_KEY_NUM * sizeof(S), hipMemcpyHostToDevice));
+      ROCM_CHECK(hipMemcpy(d_vectors_temp, h_vectors_base.data(),
                             BASE_KEY_NUM * sizeof(V) * options.dim,
-                            cudaMemcpyHostToDevice));
-      CUDA_CHECK(
-          cudaMemcpy(d_accum_or_assigns_temp, h_accum_or_assigns_base.data(),
-                     BASE_KEY_NUM * sizeof(uint8_t), cudaMemcpyHostToDevice));
+                            hipMemcpyHostToDevice));
+      ROCM_CHECK(
+          hipMemcpy(d_accum_or_assigns_temp, h_accum_or_assigns_base.data(),
+                     BASE_KEY_NUM * sizeof(uint8_t), hipMemcpyHostToDevice));
       S start_ts = test_util::host_nano<S>(stream);
       table->accum_or_assign(BASE_KEY_NUM, d_keys_temp, d_vectors_temp,
                              d_accum_or_assigns_temp, nullptr, stream);
-      CUDA_CHECK(cudaStreamSynchronize(stream));
+      ROCM_CHECK(hipStreamSynchronize(stream));
       S end_ts = test_util::host_nano<S>(stream);
 
       size_t total_size = table->size(stream);
@@ -1035,20 +1037,20 @@ void test_evict_strategy_lru_basic(size_t max_hbm_for_vectors) {
       for (int i = 0; i < BASE_KEY_NUM; i++) {
         if (!h_accum_or_assigns_base[i]) expected_size++;
       }
-      CUDA_CHECK(cudaStreamSynchronize(stream));
+      ROCM_CHECK(hipStreamSynchronize(stream));
       ASSERT_EQ(total_size, expected_size);
 
       dump_counter = table->export_batch(table->capacity(), 0, d_keys_temp,
                                          d_vectors_temp, d_scores_temp, stream);
       ASSERT_EQ(dump_counter, expected_size);
 
-      CUDA_CHECK(cudaMemcpy(h_keys_temp.data(), d_keys_temp,
-                            BASE_KEY_NUM * sizeof(K), cudaMemcpyDefault));
-      CUDA_CHECK(cudaMemcpy(h_scores_temp.data(), d_scores_temp,
-                            BASE_KEY_NUM * sizeof(S), cudaMemcpyDefault));
-      CUDA_CHECK(cudaMemcpy(h_vectors_temp.data(), d_vectors_temp,
+      ROCM_CHECK(hipMemcpy(h_keys_temp.data(), d_keys_temp,
+                            BASE_KEY_NUM * sizeof(K), hipMemcpyDefault));
+      ROCM_CHECK(hipMemcpy(h_scores_temp.data(), d_scores_temp,
+                            BASE_KEY_NUM * sizeof(S), hipMemcpyDefault));
+      ROCM_CHECK(hipMemcpy(h_vectors_temp.data(), d_vectors_temp,
                             BASE_KEY_NUM * sizeof(V) * options.dim,
-                            cudaMemcpyDefault));
+                            hipMemcpyDefault));
 
       for (int i = 0; i < dump_counter; i++) {
         ASSERT_GE(h_scores_temp[i], start_ts);
@@ -1061,24 +1063,24 @@ void test_evict_strategy_lru_basic(size_t max_hbm_for_vectors) {
     }
 
     {
-      CUDA_CHECK(cudaMemcpy(d_keys_temp, h_keys_test.data(),
-                            TEST_KEY_NUM * sizeof(K), cudaMemcpyHostToDevice));
-      CUDA_CHECK(cudaMemcpy(d_scores_temp, h_scores_test.data(),
-                            TEST_KEY_NUM * sizeof(S), cudaMemcpyHostToDevice));
-      CUDA_CHECK(cudaMemcpy(d_vectors_temp, h_vectors_test.data(),
+      ROCM_CHECK(hipMemcpy(d_keys_temp, h_keys_test.data(),
+                            TEST_KEY_NUM * sizeof(K), hipMemcpyHostToDevice));
+      ROCM_CHECK(hipMemcpy(d_scores_temp, h_scores_test.data(),
+                            TEST_KEY_NUM * sizeof(S), hipMemcpyHostToDevice));
+      ROCM_CHECK(hipMemcpy(d_vectors_temp, h_vectors_test.data(),
                             TEST_KEY_NUM * sizeof(V) * options.dim,
-                            cudaMemcpyHostToDevice));
-      CUDA_CHECK(
-          cudaMemcpy(d_accum_or_assigns_temp, h_accum_or_assigns_test.data(),
-                     TEST_KEY_NUM * sizeof(bool), cudaMemcpyHostToDevice));
+                            hipMemcpyHostToDevice));
+      ROCM_CHECK(
+          hipMemcpy(d_accum_or_assigns_temp, h_accum_or_assigns_test.data(),
+                     TEST_KEY_NUM * sizeof(bool), hipMemcpyHostToDevice));
       S start_ts = test_util::host_nano<S>(stream);
       table->accum_or_assign(TEST_KEY_NUM, d_keys_temp, d_vectors_temp,
                              d_accum_or_assigns_temp, nullptr, stream);
-      CUDA_CHECK(cudaStreamSynchronize(stream));
+      ROCM_CHECK(hipStreamSynchronize(stream));
       S end_ts = test_util::host_nano<S>(stream);
 
       size_t total_size = table->size(stream);
-      CUDA_CHECK(cudaStreamSynchronize(stream));
+      ROCM_CHECK(hipStreamSynchronize(stream));
 
       size_t expected_size = 0;
       for (int i = 0; i < BASE_KEY_NUM; i++) {
@@ -1098,13 +1100,13 @@ void test_evict_strategy_lru_basic(size_t max_hbm_for_vectors) {
                                          d_vectors_temp, d_scores_temp, stream);
       ASSERT_EQ(dump_counter, expected_size);
 
-      CUDA_CHECK(cudaMemcpy(h_keys_temp.data(), d_keys_temp,
-                            TEMP_KEY_NUM * sizeof(K), cudaMemcpyDefault));
-      CUDA_CHECK(cudaMemcpy(h_scores_temp.data(), d_scores_temp,
-                            TEMP_KEY_NUM * sizeof(S), cudaMemcpyDefault));
-      CUDA_CHECK(cudaMemcpy(h_vectors_temp.data(), d_vectors_temp,
+      ROCM_CHECK(hipMemcpy(h_keys_temp.data(), d_keys_temp,
+                            TEMP_KEY_NUM * sizeof(K), hipMemcpyDefault));
+      ROCM_CHECK(hipMemcpy(h_scores_temp.data(), d_scores_temp,
+                            TEMP_KEY_NUM * sizeof(S), hipMemcpyDefault));
+      ROCM_CHECK(hipMemcpy(h_vectors_temp.data(), d_vectors_temp,
                             TEMP_KEY_NUM * sizeof(V) * options.dim,
-                            cudaMemcpyDefault));
+                            hipMemcpyDefault));
 
       for (int i = 0; i < dump_counter; i++) {
         bool is_accum = (h_keys_temp[i] == h_keys_test[2]);
@@ -1131,14 +1133,14 @@ void test_evict_strategy_lru_basic(size_t max_hbm_for_vectors) {
       }
     }
   }
-  CUDA_CHECK(cudaStreamDestroy(stream));
+  ROCM_CHECK(hipStreamDestroy(stream));
 
-  CUDA_CHECK(cudaFree(d_keys_temp));
-  CUDA_CHECK(cudaFree(d_scores_temp));
-  CUDA_CHECK(cudaFree(d_vectors_temp));
-  CUDA_CHECK(cudaFree(d_accum_or_assigns_temp));
+  ROCM_CHECK(hipFree(d_keys_temp));
+  ROCM_CHECK(hipFree(d_scores_temp));
+  ROCM_CHECK(hipFree(d_vectors_temp));
+  ROCM_CHECK(hipFree(d_accum_or_assigns_temp));
 
-  CUDA_CHECK(cudaDeviceSynchronize());
+  ROCM_CHECK(hipDeviceSynchronize());
 
   CudaCheckError();
 }
@@ -1184,12 +1186,12 @@ void test_evict_strategy_lfu_basic(size_t max_hbm_for_vectors, int key_start) {
 
   int freq_range = 1000;
 
-  CUDA_CHECK(cudaMalloc(&d_keys_temp, TEMP_KEY_NUM * sizeof(K)));
-  CUDA_CHECK(cudaMalloc(&d_scores_temp, TEMP_KEY_NUM * sizeof(S)));
-  CUDA_CHECK(
-      cudaMalloc(&d_vectors_temp, TEMP_KEY_NUM * sizeof(V) * options.dim));
+  ROCM_CHECK(hipMalloc(&d_keys_temp, TEMP_KEY_NUM * sizeof(K)));
+  ROCM_CHECK(hipMalloc(&d_scores_temp, TEMP_KEY_NUM * sizeof(S)));
+  ROCM_CHECK(
+      hipMalloc(&d_vectors_temp, TEMP_KEY_NUM * sizeof(V) * options.dim));
 
-  CUDA_CHECK(cudaMalloc(&d_accum_or_assigns_temp, TEMP_KEY_NUM * sizeof(bool)));
+  ROCM_CHECK(hipMalloc(&d_accum_or_assigns_temp, TEMP_KEY_NUM * sizeof(bool)));
 
   test_util::create_random_bools<K>(
       reinterpret_cast<bool*>(h_accum_or_assigns_base.data()), BASE_KEY_NUM,
@@ -1228,8 +1230,8 @@ void test_evict_strategy_lfu_basic(size_t max_hbm_for_vectors, int key_start) {
       h_vectors_test[3 * options.dim + i] =
           h_vectors_base[73 * options.dim + i];
     }
-    cudaStream_t stream;
-    CUDA_CHECK(cudaStreamCreate(&stream));
+    hipStream_t stream;
+    ROCM_CHECK(hipStreamCreate(&stream));
 
     size_t total_size = 0;
     size_t dump_counter = 0;
@@ -1238,26 +1240,26 @@ void test_evict_strategy_lfu_basic(size_t max_hbm_for_vectors, int key_start) {
     table->init(options);
 
     total_size = table->size(stream);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
     ASSERT_EQ(total_size, 0);
 
     {
-      CUDA_CHECK(cudaMemcpy(d_keys_temp, h_keys_base.data(),
-                            BASE_KEY_NUM * sizeof(K), cudaMemcpyHostToDevice));
-      CUDA_CHECK(cudaMemcpy(d_scores_temp, h_scores_base.data(),
-                            BASE_KEY_NUM * sizeof(S), cudaMemcpyHostToDevice));
-      CUDA_CHECK(cudaMemcpy(d_vectors_temp, h_vectors_base.data(),
+      ROCM_CHECK(hipMemcpy(d_keys_temp, h_keys_base.data(),
+                            BASE_KEY_NUM * sizeof(K), hipMemcpyHostToDevice));
+      ROCM_CHECK(hipMemcpy(d_scores_temp, h_scores_base.data(),
+                            BASE_KEY_NUM * sizeof(S), hipMemcpyHostToDevice));
+      ROCM_CHECK(hipMemcpy(d_vectors_temp, h_vectors_base.data(),
                             BASE_KEY_NUM * sizeof(V) * options.dim,
-                            cudaMemcpyHostToDevice));
-      CUDA_CHECK(
-          cudaMemcpy(d_accum_or_assigns_temp, h_accum_or_assigns_base.data(),
-                     BASE_KEY_NUM * sizeof(uint8_t), cudaMemcpyHostToDevice));
+                            hipMemcpyHostToDevice));
+      ROCM_CHECK(
+          hipMemcpy(d_accum_or_assigns_temp, h_accum_or_assigns_base.data(),
+                     BASE_KEY_NUM * sizeof(uint8_t), hipMemcpyHostToDevice));
 
       table->set_global_epoch(global_epoch);
       table->accum_or_assign(BASE_KEY_NUM, d_keys_temp, d_vectors_temp,
                              d_accum_or_assigns_temp, d_scores_temp, stream);
 
-      CUDA_CHECK(cudaStreamSynchronize(stream));
+      ROCM_CHECK(hipStreamSynchronize(stream));
 
       size_t total_size = table->size(stream);
       size_t expected_size = 0;
@@ -1265,20 +1267,20 @@ void test_evict_strategy_lfu_basic(size_t max_hbm_for_vectors, int key_start) {
         if (!h_accum_or_assigns_base[i]) expected_size++;
       }
 
-      CUDA_CHECK(cudaStreamSynchronize(stream));
+      ROCM_CHECK(hipStreamSynchronize(stream));
       ASSERT_EQ(total_size, expected_size);
 
       dump_counter = table->export_batch(table->capacity(), 0, d_keys_temp,
                                          d_vectors_temp, d_scores_temp, stream);
       ASSERT_EQ(dump_counter, expected_size);
 
-      CUDA_CHECK(cudaMemcpy(h_keys_temp.data(), d_keys_temp,
-                            BASE_KEY_NUM * sizeof(K), cudaMemcpyDefault));
-      CUDA_CHECK(cudaMemcpy(h_scores_temp.data(), d_scores_temp,
-                            BASE_KEY_NUM * sizeof(S), cudaMemcpyDefault));
-      CUDA_CHECK(cudaMemcpy(h_vectors_temp.data(), d_vectors_temp,
+      ROCM_CHECK(hipMemcpy(h_keys_temp.data(), d_keys_temp,
+                            BASE_KEY_NUM * sizeof(K), hipMemcpyDefault));
+      ROCM_CHECK(hipMemcpy(h_scores_temp.data(), d_scores_temp,
+                            BASE_KEY_NUM * sizeof(S), hipMemcpyDefault));
+      ROCM_CHECK(hipMemcpy(h_vectors_temp.data(), d_vectors_temp,
                             BASE_KEY_NUM * sizeof(V) * options.dim,
-                            cudaMemcpyDefault));
+                            hipMemcpyDefault));
 
       for (int i = 0; i < dump_counter; i++) {
         ASSERT_EQ(h_scores_temp[i], h_keys_temp[i] % freq_range);
@@ -1291,25 +1293,25 @@ void test_evict_strategy_lfu_basic(size_t max_hbm_for_vectors, int key_start) {
 
     {
       global_epoch++;
-      CUDA_CHECK(cudaMemcpy(d_keys_temp, h_keys_test.data(),
-                            TEST_KEY_NUM * sizeof(K), cudaMemcpyHostToDevice));
-      CUDA_CHECK(cudaMemcpy(d_scores_temp, h_scores_test.data(),
-                            TEST_KEY_NUM * sizeof(S), cudaMemcpyHostToDevice));
-      CUDA_CHECK(cudaMemcpy(d_vectors_temp, h_vectors_test.data(),
+      ROCM_CHECK(hipMemcpy(d_keys_temp, h_keys_test.data(),
+                            TEST_KEY_NUM * sizeof(K), hipMemcpyHostToDevice));
+      ROCM_CHECK(hipMemcpy(d_scores_temp, h_scores_test.data(),
+                            TEST_KEY_NUM * sizeof(S), hipMemcpyHostToDevice));
+      ROCM_CHECK(hipMemcpy(d_vectors_temp, h_vectors_test.data(),
                             TEST_KEY_NUM * sizeof(V) * options.dim,
-                            cudaMemcpyHostToDevice));
-      CUDA_CHECK(
-          cudaMemcpy(d_accum_or_assigns_temp, h_accum_or_assigns_test.data(),
-                     TEST_KEY_NUM * sizeof(bool), cudaMemcpyHostToDevice));
+                            hipMemcpyHostToDevice));
+      ROCM_CHECK(
+          hipMemcpy(d_accum_or_assigns_temp, h_accum_or_assigns_test.data(),
+                     TEST_KEY_NUM * sizeof(bool), hipMemcpyHostToDevice));
 
       table->set_global_epoch(global_epoch);
       table->accum_or_assign(TEST_KEY_NUM, d_keys_temp, d_vectors_temp,
                              d_accum_or_assigns_temp, d_scores_temp, stream);
 
-      CUDA_CHECK(cudaStreamSynchronize(stream));
+      ROCM_CHECK(hipStreamSynchronize(stream));
 
       size_t total_size = table->size(stream);
-      CUDA_CHECK(cudaStreamSynchronize(stream));
+      ROCM_CHECK(hipStreamSynchronize(stream));
       size_t expected_size = 0;
       for (int i = 0; i < BASE_KEY_NUM; i++) {
         if (!h_accum_or_assigns_base[i]) expected_size++;
@@ -1328,13 +1330,13 @@ void test_evict_strategy_lfu_basic(size_t max_hbm_for_vectors, int key_start) {
                                          d_vectors_temp, d_scores_temp, stream);
       ASSERT_EQ(dump_counter, expected_size);
 
-      CUDA_CHECK(cudaMemcpy(h_keys_temp.data(), d_keys_temp,
-                            TEMP_KEY_NUM * sizeof(K), cudaMemcpyDefault));
-      CUDA_CHECK(cudaMemcpy(h_scores_temp.data(), d_scores_temp,
-                            TEMP_KEY_NUM * sizeof(S), cudaMemcpyDefault));
-      CUDA_CHECK(cudaMemcpy(h_vectors_temp.data(), d_vectors_temp,
+      ROCM_CHECK(hipMemcpy(h_keys_temp.data(), d_keys_temp,
+                            TEMP_KEY_NUM * sizeof(K), hipMemcpyDefault));
+      ROCM_CHECK(hipMemcpy(h_scores_temp.data(), d_scores_temp,
+                            TEMP_KEY_NUM * sizeof(S), hipMemcpyDefault));
+      ROCM_CHECK(hipMemcpy(h_vectors_temp.data(), d_vectors_temp,
                             TEMP_KEY_NUM * sizeof(V) * options.dim,
-                            cudaMemcpyDefault));
+                            hipMemcpyDefault));
 
       for (int i = 0; i < dump_counter; i++) {
         bool is_accum = (h_keys_temp[i] == h_keys_test[2]);
@@ -1357,15 +1359,15 @@ void test_evict_strategy_lfu_basic(size_t max_hbm_for_vectors, int key_start) {
         }
       }
     }
-    CUDA_CHECK(cudaStreamDestroy(stream));
+    ROCM_CHECK(hipStreamDestroy(stream));
   }
 
-  CUDA_CHECK(cudaFree(d_keys_temp));
-  CUDA_CHECK(cudaFree(d_scores_temp));
-  CUDA_CHECK(cudaFree(d_vectors_temp));
-  CUDA_CHECK(cudaFree(d_accum_or_assigns_temp));
+  ROCM_CHECK(hipFree(d_keys_temp));
+  ROCM_CHECK(hipFree(d_scores_temp));
+  ROCM_CHECK(hipFree(d_vectors_temp));
+  ROCM_CHECK(hipFree(d_accum_or_assigns_temp));
 
-  CUDA_CHECK(cudaDeviceSynchronize());
+  ROCM_CHECK(hipDeviceSynchronize());
 
   CudaCheckError();
 }
@@ -1413,12 +1415,12 @@ void test_evict_strategy_epochlru_basic(size_t max_hbm_for_vectors,
   V* d_vectors_temp;
   bool* d_accum_or_assigns_temp;
 
-  CUDA_CHECK(cudaMalloc(&d_keys_temp, TEMP_KEY_NUM * sizeof(K)));
-  CUDA_CHECK(cudaMalloc(&d_scores_temp, TEMP_KEY_NUM * sizeof(S)));
-  CUDA_CHECK(
-      cudaMalloc(&d_vectors_temp, TEMP_KEY_NUM * sizeof(V) * options.dim));
+  ROCM_CHECK(hipMalloc(&d_keys_temp, TEMP_KEY_NUM * sizeof(K)));
+  ROCM_CHECK(hipMalloc(&d_scores_temp, TEMP_KEY_NUM * sizeof(S)));
+  ROCM_CHECK(
+      hipMalloc(&d_vectors_temp, TEMP_KEY_NUM * sizeof(V) * options.dim));
 
-  CUDA_CHECK(cudaMalloc(&d_accum_or_assigns_temp, TEMP_KEY_NUM * sizeof(bool)));
+  ROCM_CHECK(hipMalloc(&d_accum_or_assigns_temp, TEMP_KEY_NUM * sizeof(bool)));
 
   test_util::create_random_bools<K>(
       reinterpret_cast<bool*>(h_accum_or_assigns_base.data()), BASE_KEY_NUM,
@@ -1448,8 +1450,8 @@ void test_evict_strategy_epochlru_basic(size_t max_hbm_for_vectors,
     h_vectors_test[2 * options.dim + i] = h_vectors_base[72 * options.dim + i];
     h_vectors_test[3 * options.dim + i] = h_vectors_base[73 * options.dim + i];
   }
-  cudaStream_t stream;
-  CUDA_CHECK(cudaStreamCreate(&stream));
+  hipStream_t stream;
+  ROCM_CHECK(hipStreamCreate(&stream));
 
   size_t total_size = 0;
   size_t dump_counter = 0;
@@ -1459,26 +1461,26 @@ void test_evict_strategy_epochlru_basic(size_t max_hbm_for_vectors,
     table->init(options);
 
     total_size = table->size(stream);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
     ASSERT_EQ(total_size, 0);
 
     {
-      CUDA_CHECK(cudaMemcpy(d_keys_temp, h_keys_base.data(),
-                            BASE_KEY_NUM * sizeof(K), cudaMemcpyHostToDevice));
-      CUDA_CHECK(cudaMemcpy(d_scores_temp, h_scores_base.data(),
-                            BASE_KEY_NUM * sizeof(S), cudaMemcpyHostToDevice));
-      CUDA_CHECK(cudaMemcpy(d_vectors_temp, h_vectors_base.data(),
+      ROCM_CHECK(hipMemcpy(d_keys_temp, h_keys_base.data(),
+                            BASE_KEY_NUM * sizeof(K), hipMemcpyHostToDevice));
+      ROCM_CHECK(hipMemcpy(d_scores_temp, h_scores_base.data(),
+                            BASE_KEY_NUM * sizeof(S), hipMemcpyHostToDevice));
+      ROCM_CHECK(hipMemcpy(d_vectors_temp, h_vectors_base.data(),
                             BASE_KEY_NUM * sizeof(V) * options.dim,
-                            cudaMemcpyHostToDevice));
-      CUDA_CHECK(
-          cudaMemcpy(d_accum_or_assigns_temp, h_accum_or_assigns_base.data(),
-                     BASE_KEY_NUM * sizeof(uint8_t), cudaMemcpyHostToDevice));
+                            hipMemcpyHostToDevice));
+      ROCM_CHECK(
+          hipMemcpy(d_accum_or_assigns_temp, h_accum_or_assigns_base.data(),
+                     BASE_KEY_NUM * sizeof(uint8_t), hipMemcpyHostToDevice));
       S start_ts =
           (test_util::host_nano<S>(stream) >> RSHIFT_ON_NANO) & 0xFFFFFFFF;
       table->set_global_epoch(global_epoch);
       table->accum_or_assign(BASE_KEY_NUM, d_keys_temp, d_vectors_temp,
                              d_accum_or_assigns_temp, nullptr, stream);
-      CUDA_CHECK(cudaStreamSynchronize(stream));
+      ROCM_CHECK(hipStreamSynchronize(stream));
       S end_ts =
           (test_util::host_nano<S>(stream) >> RSHIFT_ON_NANO) & 0xFFFFFFFF;
 
@@ -1487,20 +1489,20 @@ void test_evict_strategy_epochlru_basic(size_t max_hbm_for_vectors,
       for (int i = 0; i < BASE_KEY_NUM; i++) {
         if (!h_accum_or_assigns_base[i]) expected_size++;
       }
-      CUDA_CHECK(cudaStreamSynchronize(stream));
+      ROCM_CHECK(hipStreamSynchronize(stream));
       ASSERT_EQ(total_size, expected_size);
 
       dump_counter = table->export_batch(table->capacity(), 0, d_keys_temp,
                                          d_vectors_temp, d_scores_temp, stream);
       ASSERT_EQ(dump_counter, expected_size);
 
-      CUDA_CHECK(cudaMemcpy(h_keys_temp.data(), d_keys_temp,
-                            BASE_KEY_NUM * sizeof(K), cudaMemcpyDefault));
-      CUDA_CHECK(cudaMemcpy(h_scores_temp.data(), d_scores_temp,
-                            BASE_KEY_NUM * sizeof(S), cudaMemcpyDefault));
-      CUDA_CHECK(cudaMemcpy(h_vectors_temp.data(), d_vectors_temp,
+      ROCM_CHECK(hipMemcpy(h_keys_temp.data(), d_keys_temp,
+                            BASE_KEY_NUM * sizeof(K), hipMemcpyDefault));
+      ROCM_CHECK(hipMemcpy(h_scores_temp.data(), d_scores_temp,
+                            BASE_KEY_NUM * sizeof(S), hipMemcpyDefault));
+      ROCM_CHECK(hipMemcpy(h_vectors_temp.data(), d_vectors_temp,
                             BASE_KEY_NUM * sizeof(V) * options.dim,
-                            cudaMemcpyDefault));
+                            hipMemcpyDefault));
 
       for (int i = 0; i < dump_counter; i++) {
         ASSERT_GE(h_scores_temp[i] & 0xFFFFFFFF, start_ts);
@@ -1514,27 +1516,27 @@ void test_evict_strategy_epochlru_basic(size_t max_hbm_for_vectors,
 
     {
       global_epoch++;
-      CUDA_CHECK(cudaMemcpy(d_keys_temp, h_keys_test.data(),
-                            TEST_KEY_NUM * sizeof(K), cudaMemcpyHostToDevice));
-      CUDA_CHECK(cudaMemcpy(d_scores_temp, h_scores_test.data(),
-                            TEST_KEY_NUM * sizeof(S), cudaMemcpyHostToDevice));
-      CUDA_CHECK(cudaMemcpy(d_vectors_temp, h_vectors_test.data(),
+      ROCM_CHECK(hipMemcpy(d_keys_temp, h_keys_test.data(),
+                            TEST_KEY_NUM * sizeof(K), hipMemcpyHostToDevice));
+      ROCM_CHECK(hipMemcpy(d_scores_temp, h_scores_test.data(),
+                            TEST_KEY_NUM * sizeof(S), hipMemcpyHostToDevice));
+      ROCM_CHECK(hipMemcpy(d_vectors_temp, h_vectors_test.data(),
                             TEST_KEY_NUM * sizeof(V) * options.dim,
-                            cudaMemcpyHostToDevice));
-      CUDA_CHECK(
-          cudaMemcpy(d_accum_or_assigns_temp, h_accum_or_assigns_test.data(),
-                     TEST_KEY_NUM * sizeof(bool), cudaMemcpyHostToDevice));
+                            hipMemcpyHostToDevice));
+      ROCM_CHECK(
+          hipMemcpy(d_accum_or_assigns_temp, h_accum_or_assigns_test.data(),
+                     TEST_KEY_NUM * sizeof(bool), hipMemcpyHostToDevice));
       S start_ts =
           (test_util::host_nano<S>(stream) >> RSHIFT_ON_NANO) & 0xFFFFFFFF;
       table->set_global_epoch(global_epoch);
       table->accum_or_assign(TEST_KEY_NUM, d_keys_temp, d_vectors_temp,
                              d_accum_or_assigns_temp, nullptr, stream);
-      CUDA_CHECK(cudaStreamSynchronize(stream));
+      ROCM_CHECK(hipStreamSynchronize(stream));
       S end_ts =
           (test_util::host_nano<S>(stream) >> RSHIFT_ON_NANO) & 0xFFFFFFFF;
 
       size_t total_size = table->size(stream);
-      CUDA_CHECK(cudaStreamSynchronize(stream));
+      ROCM_CHECK(hipStreamSynchronize(stream));
 
       size_t expected_size = 0;
       for (int i = 0; i < BASE_KEY_NUM; i++) {
@@ -1554,13 +1556,13 @@ void test_evict_strategy_epochlru_basic(size_t max_hbm_for_vectors,
                                          d_vectors_temp, d_scores_temp, stream);
       ASSERT_EQ(dump_counter, expected_size);
 
-      CUDA_CHECK(cudaMemcpy(h_keys_temp.data(), d_keys_temp,
-                            TEMP_KEY_NUM * sizeof(K), cudaMemcpyDefault));
-      CUDA_CHECK(cudaMemcpy(h_scores_temp.data(), d_scores_temp,
-                            TEMP_KEY_NUM * sizeof(S), cudaMemcpyDefault));
-      CUDA_CHECK(cudaMemcpy(h_vectors_temp.data(), d_vectors_temp,
+      ROCM_CHECK(hipMemcpy(h_keys_temp.data(), d_keys_temp,
+                            TEMP_KEY_NUM * sizeof(K), hipMemcpyDefault));
+      ROCM_CHECK(hipMemcpy(h_scores_temp.data(), d_scores_temp,
+                            TEMP_KEY_NUM * sizeof(S), hipMemcpyDefault));
+      ROCM_CHECK(hipMemcpy(h_vectors_temp.data(), d_vectors_temp,
                             TEMP_KEY_NUM * sizeof(V) * options.dim,
-                            cudaMemcpyDefault));
+                            hipMemcpyDefault));
 
       for (int i = 0; i < dump_counter; i++) {
         bool is_accum = (h_keys_temp[i] == h_keys_test[2]);
@@ -1589,14 +1591,14 @@ void test_evict_strategy_epochlru_basic(size_t max_hbm_for_vectors,
       }
     }
   }
-  CUDA_CHECK(cudaStreamDestroy(stream));
+  ROCM_CHECK(hipStreamDestroy(stream));
 
-  CUDA_CHECK(cudaFree(d_keys_temp));
-  CUDA_CHECK(cudaFree(d_scores_temp));
-  CUDA_CHECK(cudaFree(d_vectors_temp));
-  CUDA_CHECK(cudaFree(d_accum_or_assigns_temp));
+  ROCM_CHECK(hipFree(d_keys_temp));
+  ROCM_CHECK(hipFree(d_scores_temp));
+  ROCM_CHECK(hipFree(d_vectors_temp));
+  ROCM_CHECK(hipFree(d_accum_or_assigns_temp));
 
-  CUDA_CHECK(cudaDeviceSynchronize());
+  ROCM_CHECK(hipDeviceSynchronize());
 
   CudaCheckError();
 }
@@ -1644,12 +1646,12 @@ void test_evict_strategy_epochlfu_basic(size_t max_hbm_for_vectors,
 
   int freq_range = 1000;
 
-  CUDA_CHECK(cudaMalloc(&d_keys_temp, TEMP_KEY_NUM * sizeof(K)));
-  CUDA_CHECK(cudaMalloc(&d_scores_temp, TEMP_KEY_NUM * sizeof(S)));
-  CUDA_CHECK(
-      cudaMalloc(&d_vectors_temp, TEMP_KEY_NUM * sizeof(V) * options.dim));
+  ROCM_CHECK(hipMalloc(&d_keys_temp, TEMP_KEY_NUM * sizeof(K)));
+  ROCM_CHECK(hipMalloc(&d_scores_temp, TEMP_KEY_NUM * sizeof(S)));
+  ROCM_CHECK(
+      hipMalloc(&d_vectors_temp, TEMP_KEY_NUM * sizeof(V) * options.dim));
 
-  CUDA_CHECK(cudaMalloc(&d_accum_or_assigns_temp, TEMP_KEY_NUM * sizeof(bool)));
+  ROCM_CHECK(hipMalloc(&d_accum_or_assigns_temp, TEMP_KEY_NUM * sizeof(bool)));
 
   test_util::create_random_bools<K>(
       reinterpret_cast<bool*>(h_accum_or_assigns_base.data()), BASE_KEY_NUM,
@@ -1694,8 +1696,8 @@ void test_evict_strategy_epochlfu_basic(size_t max_hbm_for_vectors,
     h_vectors_test[2 * options.dim + i] = h_vectors_base[72 * options.dim + i];
     h_vectors_test[3 * options.dim + i] = h_vectors_base[73 * options.dim + i];
   }
-  cudaStream_t stream;
-  CUDA_CHECK(cudaStreamCreate(&stream));
+  hipStream_t stream;
+  ROCM_CHECK(hipStreamCreate(&stream));
 
   size_t total_size = 0;
   size_t dump_counter = 0;
@@ -1705,26 +1707,26 @@ void test_evict_strategy_epochlfu_basic(size_t max_hbm_for_vectors,
     table->init(options);
 
     total_size = table->size(stream);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
     ASSERT_EQ(total_size, 0);
 
     {
-      CUDA_CHECK(cudaMemcpy(d_keys_temp, h_keys_base.data(),
-                            BASE_KEY_NUM * sizeof(K), cudaMemcpyHostToDevice));
-      CUDA_CHECK(cudaMemcpy(d_scores_temp, h_scores_base.data(),
-                            BASE_KEY_NUM * sizeof(S), cudaMemcpyHostToDevice));
-      CUDA_CHECK(cudaMemcpy(d_vectors_temp, h_vectors_base.data(),
+      ROCM_CHECK(hipMemcpy(d_keys_temp, h_keys_base.data(),
+                            BASE_KEY_NUM * sizeof(K), hipMemcpyHostToDevice));
+      ROCM_CHECK(hipMemcpy(d_scores_temp, h_scores_base.data(),
+                            BASE_KEY_NUM * sizeof(S), hipMemcpyHostToDevice));
+      ROCM_CHECK(hipMemcpy(d_vectors_temp, h_vectors_base.data(),
                             BASE_KEY_NUM * sizeof(V) * options.dim,
-                            cudaMemcpyHostToDevice));
-      CUDA_CHECK(
-          cudaMemcpy(d_accum_or_assigns_temp, h_accum_or_assigns_base.data(),
-                     BASE_KEY_NUM * sizeof(uint8_t), cudaMemcpyHostToDevice));
+                            hipMemcpyHostToDevice));
+      ROCM_CHECK(
+          hipMemcpy(d_accum_or_assigns_temp, h_accum_or_assigns_base.data(),
+                     BASE_KEY_NUM * sizeof(uint8_t), hipMemcpyHostToDevice));
 
       table->set_global_epoch(global_epoch);
       table->accum_or_assign(BASE_KEY_NUM, d_keys_temp, d_vectors_temp,
                              d_accum_or_assigns_temp, d_scores_temp, stream);
 
-      CUDA_CHECK(cudaStreamSynchronize(stream));
+      ROCM_CHECK(hipStreamSynchronize(stream));
 
       size_t total_size = table->size(stream);
       size_t expected_size = 0;
@@ -1732,20 +1734,20 @@ void test_evict_strategy_epochlfu_basic(size_t max_hbm_for_vectors,
         if (!h_accum_or_assigns_base[i]) expected_size++;
       }
 
-      CUDA_CHECK(cudaStreamSynchronize(stream));
+      ROCM_CHECK(hipStreamSynchronize(stream));
       ASSERT_EQ(total_size, expected_size);
 
       dump_counter = table->export_batch(table->capacity(), 0, d_keys_temp,
                                          d_vectors_temp, d_scores_temp, stream);
       ASSERT_EQ(dump_counter, expected_size);
 
-      CUDA_CHECK(cudaMemcpy(h_keys_temp.data(), d_keys_temp,
-                            BASE_KEY_NUM * sizeof(K), cudaMemcpyDefault));
-      CUDA_CHECK(cudaMemcpy(h_scores_temp.data(), d_scores_temp,
-                            BASE_KEY_NUM * sizeof(S), cudaMemcpyDefault));
-      CUDA_CHECK(cudaMemcpy(h_vectors_temp.data(), d_vectors_temp,
+      ROCM_CHECK(hipMemcpy(h_keys_temp.data(), d_keys_temp,
+                            BASE_KEY_NUM * sizeof(K), hipMemcpyDefault));
+      ROCM_CHECK(hipMemcpy(h_scores_temp.data(), d_scores_temp,
+                            BASE_KEY_NUM * sizeof(S), hipMemcpyDefault));
+      ROCM_CHECK(hipMemcpy(h_vectors_temp.data(), d_vectors_temp,
                             BASE_KEY_NUM * sizeof(V) * options.dim,
-                            cudaMemcpyDefault));
+                            hipMemcpyDefault));
 
       for (int i = 0; i < dump_counter; i++) {
         if (h_keys_temp[i] == h_keys_base[71]) {
@@ -1766,25 +1768,25 @@ void test_evict_strategy_epochlfu_basic(size_t max_hbm_for_vectors,
 
     {
       global_epoch++;
-      CUDA_CHECK(cudaMemcpy(d_keys_temp, h_keys_test.data(),
-                            TEST_KEY_NUM * sizeof(K), cudaMemcpyHostToDevice));
-      CUDA_CHECK(cudaMemcpy(d_scores_temp, h_scores_test.data(),
-                            TEST_KEY_NUM * sizeof(S), cudaMemcpyHostToDevice));
-      CUDA_CHECK(cudaMemcpy(d_vectors_temp, h_vectors_test.data(),
+      ROCM_CHECK(hipMemcpy(d_keys_temp, h_keys_test.data(),
+                            TEST_KEY_NUM * sizeof(K), hipMemcpyHostToDevice));
+      ROCM_CHECK(hipMemcpy(d_scores_temp, h_scores_test.data(),
+                            TEST_KEY_NUM * sizeof(S), hipMemcpyHostToDevice));
+      ROCM_CHECK(hipMemcpy(d_vectors_temp, h_vectors_test.data(),
                             TEST_KEY_NUM * sizeof(V) * options.dim,
-                            cudaMemcpyHostToDevice));
-      CUDA_CHECK(
-          cudaMemcpy(d_accum_or_assigns_temp, h_accum_or_assigns_test.data(),
-                     TEST_KEY_NUM * sizeof(bool), cudaMemcpyHostToDevice));
+                            hipMemcpyHostToDevice));
+      ROCM_CHECK(
+          hipMemcpy(d_accum_or_assigns_temp, h_accum_or_assigns_test.data(),
+                     TEST_KEY_NUM * sizeof(bool), hipMemcpyHostToDevice));
 
       table->set_global_epoch(global_epoch);
       table->accum_or_assign(TEST_KEY_NUM, d_keys_temp, d_vectors_temp,
                              d_accum_or_assigns_temp, d_scores_temp, stream);
 
-      CUDA_CHECK(cudaStreamSynchronize(stream));
+      ROCM_CHECK(hipStreamSynchronize(stream));
 
       size_t total_size = table->size(stream);
-      CUDA_CHECK(cudaStreamSynchronize(stream));
+      ROCM_CHECK(hipStreamSynchronize(stream));
       size_t expected_size = 0;
       for (int i = 0; i < BASE_KEY_NUM; i++) {
         if (!h_accum_or_assigns_base[i]) expected_size++;
@@ -1803,13 +1805,13 @@ void test_evict_strategy_epochlfu_basic(size_t max_hbm_for_vectors,
                                          d_vectors_temp, d_scores_temp, stream);
       ASSERT_EQ(dump_counter, expected_size);
 
-      CUDA_CHECK(cudaMemcpy(h_keys_temp.data(), d_keys_temp,
-                            TEMP_KEY_NUM * sizeof(K), cudaMemcpyDefault));
-      CUDA_CHECK(cudaMemcpy(h_scores_temp.data(), d_scores_temp,
-                            TEMP_KEY_NUM * sizeof(S), cudaMemcpyDefault));
-      CUDA_CHECK(cudaMemcpy(h_vectors_temp.data(), d_vectors_temp,
+      ROCM_CHECK(hipMemcpy(h_keys_temp.data(), d_keys_temp,
+                            TEMP_KEY_NUM * sizeof(K), hipMemcpyDefault));
+      ROCM_CHECK(hipMemcpy(h_scores_temp.data(), d_scores_temp,
+                            TEMP_KEY_NUM * sizeof(S), hipMemcpyDefault));
+      ROCM_CHECK(hipMemcpy(h_vectors_temp.data(), d_vectors_temp,
                             TEMP_KEY_NUM * sizeof(V) * options.dim,
-                            cudaMemcpyDefault));
+                            hipMemcpyDefault));
 
       ASSERT_TRUE(h_keys_temp.end() != std::find(h_keys_temp.begin(),
                                                  h_keys_temp.end(),
@@ -1858,14 +1860,14 @@ void test_evict_strategy_epochlfu_basic(size_t max_hbm_for_vectors,
       }
     }
   }
-  CUDA_CHECK(cudaStreamDestroy(stream));
+  ROCM_CHECK(hipStreamDestroy(stream));
 
-  CUDA_CHECK(cudaFree(d_keys_temp));
-  CUDA_CHECK(cudaFree(d_scores_temp));
-  CUDA_CHECK(cudaFree(d_vectors_temp));
-  CUDA_CHECK(cudaFree(d_accum_or_assigns_temp));
+  ROCM_CHECK(hipFree(d_keys_temp));
+  ROCM_CHECK(hipFree(d_scores_temp));
+  ROCM_CHECK(hipFree(d_vectors_temp));
+  ROCM_CHECK(hipFree(d_accum_or_assigns_temp));
 
-  CUDA_CHECK(cudaDeviceSynchronize());
+  ROCM_CHECK(hipDeviceSynchronize());
 
   CudaCheckError();
 }
@@ -1913,13 +1915,13 @@ void test_evict_strategy_customized_basic(size_t max_hbm_for_vectors,
   bool* d_accum_or_assigns_temp;
   bool* d_found_temp;
 
-  CUDA_CHECK(cudaMalloc(&d_keys_temp, TEMP_KEY_NUM * sizeof(K)));
-  CUDA_CHECK(cudaMalloc(&d_scores_temp, TEMP_KEY_NUM * sizeof(S)));
-  CUDA_CHECK(
-      cudaMalloc(&d_vectors_temp, TEMP_KEY_NUM * sizeof(V) * options.dim));
+  ROCM_CHECK(hipMalloc(&d_keys_temp, TEMP_KEY_NUM * sizeof(K)));
+  ROCM_CHECK(hipMalloc(&d_scores_temp, TEMP_KEY_NUM * sizeof(S)));
+  ROCM_CHECK(
+      hipMalloc(&d_vectors_temp, TEMP_KEY_NUM * sizeof(V) * options.dim));
 
-  CUDA_CHECK(cudaMalloc(&d_accum_or_assigns_temp, TEMP_KEY_NUM * sizeof(bool)));
-  CUDA_CHECK(cudaMalloc(&d_found_temp, TEMP_KEY_NUM * sizeof(bool)));
+  ROCM_CHECK(hipMalloc(&d_accum_or_assigns_temp, TEMP_KEY_NUM * sizeof(bool)));
+  ROCM_CHECK(hipMalloc(&d_found_temp, TEMP_KEY_NUM * sizeof(bool)));
 
   test_util::create_random_bools<K>(
       reinterpret_cast<bool*>(h_accum_or_assigns_base.data()), BASE_KEY_NUM,
@@ -1953,8 +1955,8 @@ void test_evict_strategy_customized_basic(size_t max_hbm_for_vectors,
     }
   }
 
-  cudaStream_t stream;
-  CUDA_CHECK(cudaStreamCreate(&stream));
+  hipStream_t stream;
+  ROCM_CHECK(hipStreamCreate(&stream));
 
   size_t total_size = 0;
   size_t dump_counter = 0;
@@ -1963,43 +1965,43 @@ void test_evict_strategy_customized_basic(size_t max_hbm_for_vectors,
     table->init(options);
 
     total_size = table->size(stream);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
     ASSERT_EQ(total_size, 0);
 
     {
-      CUDA_CHECK(cudaMemcpy(d_keys_temp, h_keys_base.data(),
-                            BASE_KEY_NUM * sizeof(K), cudaMemcpyHostToDevice));
-      CUDA_CHECK(cudaMemcpy(d_scores_temp, h_scores_base.data(),
-                            BASE_KEY_NUM * sizeof(S), cudaMemcpyHostToDevice));
-      CUDA_CHECK(cudaMemcpy(d_vectors_temp, h_vectors_base.data(),
+      ROCM_CHECK(hipMemcpy(d_keys_temp, h_keys_base.data(),
+                            BASE_KEY_NUM * sizeof(K), hipMemcpyHostToDevice));
+      ROCM_CHECK(hipMemcpy(d_scores_temp, h_scores_base.data(),
+                            BASE_KEY_NUM * sizeof(S), hipMemcpyHostToDevice));
+      ROCM_CHECK(hipMemcpy(d_vectors_temp, h_vectors_base.data(),
                             BASE_KEY_NUM * sizeof(V) * options.dim,
-                            cudaMemcpyHostToDevice));
-      CUDA_CHECK(
-          cudaMemcpy(d_accum_or_assigns_temp, h_accum_or_assigns_base.data(),
-                     BASE_KEY_NUM * sizeof(uint8_t), cudaMemcpyHostToDevice));
+                            hipMemcpyHostToDevice));
+      ROCM_CHECK(
+          hipMemcpy(d_accum_or_assigns_temp, h_accum_or_assigns_base.data(),
+                     BASE_KEY_NUM * sizeof(uint8_t), hipMemcpyHostToDevice));
       table->accum_or_assign(BASE_KEY_NUM, d_keys_temp, d_vectors_temp,
                              d_accum_or_assigns_temp, d_scores_temp, stream);
-      CUDA_CHECK(cudaStreamSynchronize(stream));
+      ROCM_CHECK(hipStreamSynchronize(stream));
 
       size_t total_size = table->size(stream);
       size_t expected_size = 0;
       for (int i = 0; i < BASE_KEY_NUM; i++) {
         if (!h_accum_or_assigns_base[i]) expected_size++;
       }
-      CUDA_CHECK(cudaStreamSynchronize(stream));
+      ROCM_CHECK(hipStreamSynchronize(stream));
       ASSERT_EQ(total_size, expected_size);
 
       dump_counter = table->export_batch(table->capacity(), 0, d_keys_temp,
                                          d_vectors_temp, d_scores_temp, stream);
       ASSERT_EQ(dump_counter, expected_size);
 
-      CUDA_CHECK(cudaMemcpy(h_keys_temp.data(), d_keys_temp,
-                            BASE_KEY_NUM * sizeof(K), cudaMemcpyDefault));
-      CUDA_CHECK(cudaMemcpy(h_scores_temp.data(), d_scores_temp,
-                            BASE_KEY_NUM * sizeof(S), cudaMemcpyDefault));
-      CUDA_CHECK(cudaMemcpy(h_vectors_temp.data(), d_vectors_temp,
+      ROCM_CHECK(hipMemcpy(h_keys_temp.data(), d_keys_temp,
+                            BASE_KEY_NUM * sizeof(K), hipMemcpyDefault));
+      ROCM_CHECK(hipMemcpy(h_scores_temp.data(), d_scores_temp,
+                            BASE_KEY_NUM * sizeof(S), hipMemcpyDefault));
+      ROCM_CHECK(hipMemcpy(h_vectors_temp.data(), d_vectors_temp,
                             BASE_KEY_NUM * sizeof(V) * options.dim,
-                            cudaMemcpyDefault));
+                            hipMemcpyDefault));
 
       for (int i = 0; i < dump_counter; i++) {
         S expected_score = 0ul;
@@ -2020,30 +2022,30 @@ void test_evict_strategy_customized_basic(size_t max_hbm_for_vectors,
     }
 
     {
-      CUDA_CHECK(cudaMemcpy(d_keys_temp, h_keys_test.data(),
-                            TEST_KEY_NUM * sizeof(K), cudaMemcpyHostToDevice));
-      CUDA_CHECK(cudaMemcpy(d_scores_temp, h_scores_test.data(),
-                            TEST_KEY_NUM * sizeof(S), cudaMemcpyHostToDevice));
-      CUDA_CHECK(
-          cudaMemcpy(d_accum_or_assigns_temp, h_accum_or_assigns_test.data(),
-                     TEST_KEY_NUM * sizeof(bool), cudaMemcpyHostToDevice));
+      ROCM_CHECK(hipMemcpy(d_keys_temp, h_keys_test.data(),
+                            TEST_KEY_NUM * sizeof(K), hipMemcpyHostToDevice));
+      ROCM_CHECK(hipMemcpy(d_scores_temp, h_scores_test.data(),
+                            TEST_KEY_NUM * sizeof(S), hipMemcpyHostToDevice));
+      ROCM_CHECK(
+          hipMemcpy(d_accum_or_assigns_temp, h_accum_or_assigns_test.data(),
+                     TEST_KEY_NUM * sizeof(bool), hipMemcpyHostToDevice));
       table->find(TEST_KEY_NUM, d_keys_temp, d_vectors_temp, d_found_temp,
                   nullptr, stream);
-      CUDA_CHECK(cudaStreamSynchronize(stream));
+      ROCM_CHECK(hipStreamSynchronize(stream));
 
-      CUDA_CHECK(cudaMemcpy(h_found_temp.data(), d_found_temp,
+      ROCM_CHECK(hipMemcpy(h_found_temp.data(), d_found_temp,
                             TEST_KEY_NUM * sizeof(bool),
-                            cudaMemcpyDeviceToHost));
+                            hipMemcpyDeviceToHost));
 
-      CUDA_CHECK(cudaMemcpy(d_vectors_temp, h_vectors_test.data(),
+      ROCM_CHECK(hipMemcpy(d_vectors_temp, h_vectors_test.data(),
                             TEST_KEY_NUM * sizeof(V) * options.dim,
-                            cudaMemcpyHostToDevice));
+                            hipMemcpyHostToDevice));
       table->accum_or_assign(TEST_KEY_NUM, d_keys_temp, d_vectors_temp,
                              d_accum_or_assigns_temp, d_scores_temp, stream);
-      CUDA_CHECK(cudaStreamSynchronize(stream));
+      ROCM_CHECK(hipStreamSynchronize(stream));
 
       size_t total_size = table->size(stream);
-      CUDA_CHECK(cudaStreamSynchronize(stream));
+      ROCM_CHECK(hipStreamSynchronize(stream));
 
       size_t expected_size = 0;
       for (int i = 0; i < BASE_KEY_NUM; i++) {
@@ -2068,13 +2070,13 @@ void test_evict_strategy_customized_basic(size_t max_hbm_for_vectors,
                                          d_vectors_temp, d_scores_temp, stream);
       ASSERT_EQ(dump_counter, total_size);
 
-      CUDA_CHECK(cudaMemcpy(h_keys_temp.data(), d_keys_temp,
-                            TEMP_KEY_NUM * sizeof(K), cudaMemcpyDefault));
-      CUDA_CHECK(cudaMemcpy(h_scores_temp.data(), d_scores_temp,
-                            TEMP_KEY_NUM * sizeof(S), cudaMemcpyDefault));
-      CUDA_CHECK(cudaMemcpy(h_vectors_temp.data(), d_vectors_temp,
+      ROCM_CHECK(hipMemcpy(h_keys_temp.data(), d_keys_temp,
+                            TEMP_KEY_NUM * sizeof(K), hipMemcpyDefault));
+      ROCM_CHECK(hipMemcpy(h_scores_temp.data(), d_scores_temp,
+                            TEMP_KEY_NUM * sizeof(S), hipMemcpyDefault));
+      ROCM_CHECK(hipMemcpy(h_vectors_temp.data(), d_vectors_temp,
                             TEMP_KEY_NUM * sizeof(V) * options.dim,
-                            cudaMemcpyDefault));
+                            hipMemcpyDefault));
 
       for (int i = 0; i < dump_counter; i++) {
         S expected_score = 888ul;
@@ -2120,15 +2122,15 @@ void test_evict_strategy_customized_basic(size_t max_hbm_for_vectors,
       }
     }
   }
-  CUDA_CHECK(cudaStreamDestroy(stream));
+  ROCM_CHECK(hipStreamDestroy(stream));
 
-  CUDA_CHECK(cudaFree(d_keys_temp));
-  CUDA_CHECK(cudaFree(d_scores_temp));
-  CUDA_CHECK(cudaFree(d_vectors_temp));
-  CUDA_CHECK(cudaFree(d_accum_or_assigns_temp));
-  CUDA_CHECK(cudaFree(d_found_temp));
+  ROCM_CHECK(hipFree(d_keys_temp));
+  ROCM_CHECK(hipFree(d_scores_temp));
+  ROCM_CHECK(hipFree(d_vectors_temp));
+  ROCM_CHECK(hipFree(d_accum_or_assigns_temp));
+  ROCM_CHECK(hipFree(d_found_temp));
 
-  CUDA_CHECK(cudaDeviceSynchronize());
+  ROCM_CHECK(hipDeviceSynchronize());
 
   CudaCheckError();
 }
@@ -2175,11 +2177,11 @@ void test_evict_strategy_customized_advanced(size_t max_hbm_for_vectors,
   V* d_vectors_temp;
   bool* d_accum_or_assigns_temp;
 
-  CUDA_CHECK(cudaMalloc(&d_keys_temp, TEMP_KEY_NUM * sizeof(K)));
-  CUDA_CHECK(cudaMalloc(&d_scores_temp, TEMP_KEY_NUM * sizeof(S)));
-  CUDA_CHECK(
-      cudaMalloc(&d_vectors_temp, TEMP_KEY_NUM * sizeof(V) * options.dim));
-  CUDA_CHECK(cudaMalloc(&d_accum_or_assigns_temp, TEMP_KEY_NUM * sizeof(bool)));
+  ROCM_CHECK(hipMalloc(&d_keys_temp, TEMP_KEY_NUM * sizeof(K)));
+  ROCM_CHECK(hipMalloc(&d_scores_temp, TEMP_KEY_NUM * sizeof(S)));
+  ROCM_CHECK(
+      hipMalloc(&d_vectors_temp, TEMP_KEY_NUM * sizeof(V) * options.dim));
+  ROCM_CHECK(hipMalloc(&d_accum_or_assigns_temp, TEMP_KEY_NUM * sizeof(bool)));
 
   test_util::create_random_bools<K>(
       reinterpret_cast<bool*>(h_accum_or_assigns_base.data()), BASE_KEY_NUM,
@@ -2239,8 +2241,8 @@ void test_evict_strategy_customized_advanced(size_t max_hbm_for_vectors,
     }
   }
 
-  cudaStream_t stream;
-  CUDA_CHECK(cudaStreamCreate(&stream));
+  hipStream_t stream;
+  ROCM_CHECK(hipStreamCreate(&stream));
 
   size_t total_size = 0;
   size_t dump_counter = 0;
@@ -2249,26 +2251,26 @@ void test_evict_strategy_customized_advanced(size_t max_hbm_for_vectors,
     table->init(options);
 
     total_size = table->size(stream);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
     ASSERT_EQ(total_size, 0);
 
     {
-      CUDA_CHECK(cudaMemcpy(d_keys_temp, h_keys_base.data(),
-                            BASE_KEY_NUM * sizeof(K), cudaMemcpyHostToDevice));
-      CUDA_CHECK(cudaMemcpy(d_scores_temp, h_scores_base.data(),
-                            BASE_KEY_NUM * sizeof(S), cudaMemcpyHostToDevice));
-      CUDA_CHECK(cudaMemcpy(d_vectors_temp, h_vectors_base.data(),
+      ROCM_CHECK(hipMemcpy(d_keys_temp, h_keys_base.data(),
+                            BASE_KEY_NUM * sizeof(K), hipMemcpyHostToDevice));
+      ROCM_CHECK(hipMemcpy(d_scores_temp, h_scores_base.data(),
+                            BASE_KEY_NUM * sizeof(S), hipMemcpyHostToDevice));
+      ROCM_CHECK(hipMemcpy(d_vectors_temp, h_vectors_base.data(),
                             BASE_KEY_NUM * sizeof(V) * options.dim,
-                            cudaMemcpyHostToDevice));
-      CUDA_CHECK(
-          cudaMemcpy(d_accum_or_assigns_temp, h_accum_or_assigns_base.data(),
-                     BASE_KEY_NUM * sizeof(uint8_t), cudaMemcpyHostToDevice));
+                            hipMemcpyHostToDevice));
+      ROCM_CHECK(
+          hipMemcpy(d_accum_or_assigns_temp, h_accum_or_assigns_base.data(),
+                     BASE_KEY_NUM * sizeof(uint8_t), hipMemcpyHostToDevice));
       table->accum_or_assign(BASE_KEY_NUM, d_keys_temp, d_vectors_temp,
                              d_accum_or_assigns_temp, d_scores_temp, stream);
-      CUDA_CHECK(cudaStreamSynchronize(stream));
+      ROCM_CHECK(hipStreamSynchronize(stream));
 
       size_t total_size = table->size(stream);
-      CUDA_CHECK(cudaStreamSynchronize(stream));
+      ROCM_CHECK(hipStreamSynchronize(stream));
 
       size_t expected_size = 0;
       for (const auto accum : h_accum_or_assigns_base) {
@@ -2281,13 +2283,13 @@ void test_evict_strategy_customized_advanced(size_t max_hbm_for_vectors,
                                          d_vectors_temp, d_scores_temp, stream);
       ASSERT_EQ(dump_counter, expected_size);
 
-      CUDA_CHECK(cudaMemcpy(h_keys_temp.data(), d_keys_temp,
-                            BASE_KEY_NUM * sizeof(K), cudaMemcpyDefault));
-      CUDA_CHECK(cudaMemcpy(h_scores_temp.data(), d_scores_temp,
-                            BASE_KEY_NUM * sizeof(S), cudaMemcpyDefault));
-      CUDA_CHECK(cudaMemcpy(h_vectors_temp.data(), d_vectors_temp,
+      ROCM_CHECK(hipMemcpy(h_keys_temp.data(), d_keys_temp,
+                            BASE_KEY_NUM * sizeof(K), hipMemcpyDefault));
+      ROCM_CHECK(hipMemcpy(h_scores_temp.data(), d_scores_temp,
+                            BASE_KEY_NUM * sizeof(S), hipMemcpyDefault));
+      ROCM_CHECK(hipMemcpy(h_vectors_temp.data(), d_vectors_temp,
                             BASE_KEY_NUM * sizeof(V) * options.dim,
-                            cudaMemcpyDefault));
+                            hipMemcpyDefault));
 
       std::vector<S> h_scores_temp_sorted(h_scores_temp);
       std::sort(h_scores_temp_sorted.begin(), h_scores_temp_sorted.end());
@@ -2310,23 +2312,23 @@ void test_evict_strategy_customized_advanced(size_t max_hbm_for_vectors,
 
     {
       std::unordered_map<K, bool> base_found_map;
-      CUDA_CHECK(cudaMemcpy(d_keys_temp, h_keys_test.data(),
-                            TEST_KEY_NUM * sizeof(K), cudaMemcpyHostToDevice));
-      CUDA_CHECK(cudaMemcpy(d_scores_temp, h_scores_test.data(),
-                            TEST_KEY_NUM * sizeof(S), cudaMemcpyHostToDevice));
-      CUDA_CHECK(
-          cudaMemcpy(d_accum_or_assigns_temp, h_accum_or_assigns_test.data(),
-                     TEST_KEY_NUM * sizeof(bool), cudaMemcpyHostToDevice));
-      CUDA_CHECK(cudaMemcpy(d_vectors_temp, h_vectors_test.data(),
+      ROCM_CHECK(hipMemcpy(d_keys_temp, h_keys_test.data(),
+                            TEST_KEY_NUM * sizeof(K), hipMemcpyHostToDevice));
+      ROCM_CHECK(hipMemcpy(d_scores_temp, h_scores_test.data(),
+                            TEST_KEY_NUM * sizeof(S), hipMemcpyHostToDevice));
+      ROCM_CHECK(
+          hipMemcpy(d_accum_or_assigns_temp, h_accum_or_assigns_test.data(),
+                     TEST_KEY_NUM * sizeof(bool), hipMemcpyHostToDevice));
+      ROCM_CHECK(hipMemcpy(d_vectors_temp, h_vectors_test.data(),
                             TEST_KEY_NUM * sizeof(V) * options.dim,
-                            cudaMemcpyHostToDevice));
+                            hipMemcpyHostToDevice));
 
       table->accum_or_assign(TEST_KEY_NUM, d_keys_temp, d_vectors_temp,
                              d_accum_or_assigns_temp, d_scores_temp, stream);
-      CUDA_CHECK(cudaStreamSynchronize(stream));
+      ROCM_CHECK(hipStreamSynchronize(stream));
 
       size_t total_size = table->size(stream);
-      CUDA_CHECK(cudaStreamSynchronize(stream));
+      ROCM_CHECK(hipStreamSynchronize(stream));
 
       size_t expected_size = 0;
       for (const auto accum : h_accum_or_assigns_base) {
@@ -2339,13 +2341,13 @@ void test_evict_strategy_customized_advanced(size_t max_hbm_for_vectors,
                                          d_vectors_temp, d_scores_temp, stream);
       ASSERT_EQ(dump_counter, expected_size);
 
-      CUDA_CHECK(cudaMemcpy(h_keys_temp.data(), d_keys_temp,
-                            TEMP_KEY_NUM * sizeof(K), cudaMemcpyDefault));
-      CUDA_CHECK(cudaMemcpy(h_scores_temp.data(), d_scores_temp,
-                            TEMP_KEY_NUM * sizeof(S), cudaMemcpyDefault));
-      CUDA_CHECK(cudaMemcpy(h_vectors_temp.data(), d_vectors_temp,
+      ROCM_CHECK(hipMemcpy(h_keys_temp.data(), d_keys_temp,
+                            TEMP_KEY_NUM * sizeof(K), hipMemcpyDefault));
+      ROCM_CHECK(hipMemcpy(h_scores_temp.data(), d_scores_temp,
+                            TEMP_KEY_NUM * sizeof(S), hipMemcpyDefault));
+      ROCM_CHECK(hipMemcpy(h_vectors_temp.data(), d_vectors_temp,
                             TEMP_KEY_NUM * sizeof(V) * options.dim,
-                            cudaMemcpyDefault));
+                            hipMemcpyDefault));
 
       for (int i = 0; i < TEST_KEY_NUM; i++) {
         if (i < 4) {
@@ -2379,14 +2381,14 @@ void test_evict_strategy_customized_advanced(size_t max_hbm_for_vectors,
       }
     }
   }
-  CUDA_CHECK(cudaStreamDestroy(stream));
+  ROCM_CHECK(hipStreamDestroy(stream));
 
-  CUDA_CHECK(cudaFree(d_keys_temp));
-  CUDA_CHECK(cudaFree(d_scores_temp));
-  CUDA_CHECK(cudaFree(d_vectors_temp));
-  CUDA_CHECK(cudaFree(d_accum_or_assigns_temp));
+  ROCM_CHECK(hipFree(d_keys_temp));
+  ROCM_CHECK(hipFree(d_scores_temp));
+  ROCM_CHECK(hipFree(d_vectors_temp));
+  ROCM_CHECK(hipFree(d_accum_or_assigns_temp));
 
-  CUDA_CHECK(cudaDeviceSynchronize());
+  ROCM_CHECK(hipDeviceSynchronize());
 
   CudaCheckError();
 }
@@ -2428,14 +2430,14 @@ void test_evict_strategy_customized_correct_rate(size_t max_hbm_for_vectors,
   V* d_vectors_temp;
   bool* d_accum_or_assigns_temp;
 
-  CUDA_CHECK(cudaMalloc(&d_keys_temp, MAX_CAPACITY * sizeof(K)));
-  CUDA_CHECK(cudaMalloc(&d_scores_temp, MAX_CAPACITY * sizeof(S)));
-  CUDA_CHECK(
-      cudaMalloc(&d_vectors_temp, MAX_CAPACITY * sizeof(V) * options.dim));
-  CUDA_CHECK(cudaMalloc(&d_accum_or_assigns_temp, MAX_CAPACITY * sizeof(bool)));
+  ROCM_CHECK(hipMalloc(&d_keys_temp, MAX_CAPACITY * sizeof(K)));
+  ROCM_CHECK(hipMalloc(&d_scores_temp, MAX_CAPACITY * sizeof(S)));
+  ROCM_CHECK(
+      hipMalloc(&d_vectors_temp, MAX_CAPACITY * sizeof(V) * options.dim));
+  ROCM_CHECK(hipMalloc(&d_accum_or_assigns_temp, MAX_CAPACITY * sizeof(bool)));
 
-  cudaStream_t stream;
-  CUDA_CHECK(cudaStreamCreate(&stream));
+  hipStream_t stream;
+  ROCM_CHECK(hipStreamCreate(&stream));
 
   size_t total_size = 0;
   size_t global_start_key = 100000;
@@ -2445,7 +2447,7 @@ void test_evict_strategy_customized_correct_rate(size_t max_hbm_for_vectors,
     size_t start_key = global_start_key;
 
     total_size = table->size(stream);
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
     ASSERT_EQ(total_size, 0);
 
     for (int r = 0; r < rounds; r++) {
@@ -2462,36 +2464,36 @@ void test_evict_strategy_customized_correct_rate(size_t max_hbm_for_vectors,
             h_keys_base, h_scores_base, h_vectors_base, BATCH_SIZE, start_key);
         start_key += BATCH_SIZE;
 
-        CUDA_CHECK(cudaMemcpy(d_keys_temp, h_keys_base, BATCH_SIZE * sizeof(K),
-                              cudaMemcpyHostToDevice));
-        CUDA_CHECK(cudaMemcpy(d_scores_temp, h_scores_base,
-                              BATCH_SIZE * sizeof(S), cudaMemcpyHostToDevice));
-        CUDA_CHECK(cudaMemcpy(d_vectors_temp, h_vectors_base,
+        ROCM_CHECK(hipMemcpy(d_keys_temp, h_keys_base, BATCH_SIZE * sizeof(K),
+                              hipMemcpyHostToDevice));
+        ROCM_CHECK(hipMemcpy(d_scores_temp, h_scores_base,
+                              BATCH_SIZE * sizeof(S), hipMemcpyHostToDevice));
+        ROCM_CHECK(hipMemcpy(d_vectors_temp, h_vectors_base,
                               BATCH_SIZE * sizeof(V) * options.dim,
-                              cudaMemcpyHostToDevice));
-        CUDA_CHECK(cudaMemcpy(d_accum_or_assigns_temp, h_accum_or_assigns_base,
+                              hipMemcpyHostToDevice));
+        ROCM_CHECK(hipMemcpy(d_accum_or_assigns_temp, h_accum_or_assigns_base,
                               BATCH_SIZE * sizeof(bool),
-                              cudaMemcpyHostToDevice));
+                              hipMemcpyHostToDevice));
         table->accum_or_assign(BATCH_SIZE, d_keys_temp, d_vectors_temp,
                                d_accum_or_assigns_temp, d_scores_temp, stream);
-        CUDA_CHECK(cudaStreamSynchronize(stream));
+        ROCM_CHECK(hipStreamSynchronize(stream));
       }
 
       size_t total_size = table->size(stream);
-      CUDA_CHECK(cudaStreamSynchronize(stream));
+      ROCM_CHECK(hipStreamSynchronize(stream));
       ASSERT_GE(total_size, expected_table_size);
       ASSERT_EQ(MAX_CAPACITY, table->capacity());
 
       size_t dump_counter = table->export_batch(
           MAX_CAPACITY, 0, d_keys_temp, d_vectors_temp, d_scores_temp, stream);
 
-      CUDA_CHECK(cudaMemcpy(h_keys_temp, d_keys_temp, MAX_CAPACITY * sizeof(K),
-                            cudaMemcpyDeviceToHost));
-      CUDA_CHECK(cudaMemcpy(h_scores_temp, d_scores_temp,
-                            MAX_CAPACITY * sizeof(S), cudaMemcpyDeviceToHost));
-      CUDA_CHECK(cudaMemcpy(h_vectors_temp, d_vectors_temp,
+      ROCM_CHECK(hipMemcpy(h_keys_temp, d_keys_temp, MAX_CAPACITY * sizeof(K),
+                            hipMemcpyDeviceToHost));
+      ROCM_CHECK(hipMemcpy(h_scores_temp, d_scores_temp,
+                            MAX_CAPACITY * sizeof(S), hipMemcpyDeviceToHost));
+      ROCM_CHECK(hipMemcpy(h_vectors_temp, d_vectors_temp,
                             MAX_CAPACITY * sizeof(V) * options.dim,
-                            cudaMemcpyDeviceToHost));
+                            hipMemcpyDeviceToHost));
 
       size_t bigger_score_counter = 0;
       K max_key = 0;
@@ -2516,14 +2518,14 @@ void test_evict_strategy_customized_correct_rate(size_t max_hbm_for_vectors,
       ASSERT_GE(correct_rate, expected_correct_rate);
     }
   }
-  CUDA_CHECK(cudaStreamDestroy(stream));
+  ROCM_CHECK(hipStreamDestroy(stream));
 
-  CUDA_CHECK(cudaFree(d_keys_temp));
-  CUDA_CHECK(cudaFree(d_scores_temp));
-  CUDA_CHECK(cudaFree(d_vectors_temp));
-  CUDA_CHECK(cudaFree(d_accum_or_assigns_temp));
+  ROCM_CHECK(hipFree(d_keys_temp));
+  ROCM_CHECK(hipFree(d_scores_temp));
+  ROCM_CHECK(hipFree(d_vectors_temp));
+  ROCM_CHECK(hipFree(d_accum_or_assigns_temp));
 
-  CUDA_CHECK(cudaDeviceSynchronize());
+  ROCM_CHECK(hipDeviceSynchronize());
 
   CudaCheckError();
 }
@@ -2565,27 +2567,27 @@ void test_dynamic_rehash_on_multi_threads(size_t max_hbm_for_vectors,
 
     size_t current_capacity = table->capacity();
 
-    CUDA_CHECK(cudaMallocHost(&h_keys, KEY_NUM * sizeof(K)));
-    CUDA_CHECK(cudaMallocHost(&h_vectors, KEY_NUM * sizeof(V) * options.dim));
-    CUDA_CHECK(cudaMallocHost(&h_keys_temp, KEY_NUM * sizeof(K)));
-    CUDA_CHECK(
-        cudaMallocHost(&h_vectors_temp, KEY_NUM * sizeof(V) * options.dim));
-    CUDA_CHECK(cudaMallocHost(&h_found_temp, KEY_NUM * sizeof(bool)));
-    CUDA_CHECK(cudaMallocHost(&h_found, KEY_NUM * sizeof(bool)));
-    CUDA_CHECK(cudaMallocHost(&h_accum_or_assigns, KEY_NUM * sizeof(bool)));
+    ROCM_CHECK(hipHostMalloc(&h_keys, KEY_NUM * sizeof(K)));
+    ROCM_CHECK(hipHostMalloc(&h_vectors, KEY_NUM * sizeof(V) * options.dim));
+    ROCM_CHECK(hipHostMalloc(&h_keys_temp, KEY_NUM * sizeof(K)));
+    ROCM_CHECK(
+        hipHostMalloc(&h_vectors_temp, KEY_NUM * sizeof(V) * options.dim));
+    ROCM_CHECK(hipHostMalloc(&h_found_temp, KEY_NUM * sizeof(bool)));
+    ROCM_CHECK(hipHostMalloc(&h_found, KEY_NUM * sizeof(bool)));
+    ROCM_CHECK(hipHostMalloc(&h_accum_or_assigns, KEY_NUM * sizeof(bool)));
 
     K* d_keys;
     V* d_vectors;
     bool* d_found;
     bool* d_accum_or_assigns;
 
-    CUDA_CHECK(cudaMalloc(&d_keys, KEY_NUM * sizeof(K)));
-    CUDA_CHECK(cudaMalloc(&d_vectors, KEY_NUM * sizeof(V) * options.dim));
-    CUDA_CHECK(cudaMalloc(&d_found, KEY_NUM * sizeof(bool)));
-    CUDA_CHECK(cudaMalloc(&d_accum_or_assigns, KEY_NUM * sizeof(bool)));
+    ROCM_CHECK(hipMalloc(&d_keys, KEY_NUM * sizeof(K)));
+    ROCM_CHECK(hipMalloc(&d_vectors, KEY_NUM * sizeof(V) * options.dim));
+    ROCM_CHECK(hipMalloc(&d_found, KEY_NUM * sizeof(bool)));
+    ROCM_CHECK(hipMalloc(&d_accum_or_assigns, KEY_NUM * sizeof(bool)));
 
-    cudaStream_t stream;
-    CUDA_CHECK(cudaStreamCreate(&stream));
+    hipStream_t stream;
+    ROCM_CHECK(hipStreamCreate(&stream));
 
     while (table->capacity() * 2 < MAX_CAPACITY) {
       test_util::create_random_bools<K>(h_accum_or_assigns, KEY_NUM,
@@ -2593,50 +2595,50 @@ void test_dynamic_rehash_on_multi_threads(size_t max_hbm_for_vectors,
 
       test_util::create_random_keys<K, S, V, DIM>(h_keys, nullptr, h_vectors,
                                                   KEY_NUM);
-      CUDA_CHECK(cudaMemcpy(d_keys, h_keys, KEY_NUM * sizeof(K),
-                            cudaMemcpyHostToDevice));
-      CUDA_CHECK(cudaMemcpy(d_vectors, h_vectors,
+      ROCM_CHECK(hipMemcpy(d_keys, h_keys, KEY_NUM * sizeof(K),
+                            hipMemcpyHostToDevice));
+      ROCM_CHECK(hipMemcpy(d_vectors, h_vectors,
                             KEY_NUM * sizeof(V) * options.dim,
-                            cudaMemcpyHostToDevice));
-      CUDA_CHECK(cudaMemcpy(d_accum_or_assigns, h_accum_or_assigns,
-                            KEY_NUM * sizeof(bool), cudaMemcpyHostToDevice));
-      CUDA_CHECK(cudaMemset(d_found, 0, KEY_NUM * sizeof(bool)));
+                            hipMemcpyHostToDevice));
+      ROCM_CHECK(hipMemcpy(d_accum_or_assigns, h_accum_or_assigns,
+                            KEY_NUM * sizeof(bool), hipMemcpyHostToDevice));
+      ROCM_CHECK(hipMemset(d_found, 0, KEY_NUM * sizeof(bool)));
 
       table->find(KEY_NUM, d_keys, d_vectors, d_found, nullptr, stream);
-      CUDA_CHECK(cudaStreamSynchronize(stream));
+      ROCM_CHECK(hipStreamSynchronize(stream));
 
-      CUDA_CHECK(cudaMemcpy(h_keys_temp, d_keys, KEY_NUM * sizeof(K),
-                            cudaMemcpyDeviceToHost));
-      CUDA_CHECK(cudaMemcpy(h_vectors_temp, d_vectors,
+      ROCM_CHECK(hipMemcpy(h_keys_temp, d_keys, KEY_NUM * sizeof(K),
+                            hipMemcpyDeviceToHost));
+      ROCM_CHECK(hipMemcpy(h_vectors_temp, d_vectors,
                             KEY_NUM * sizeof(V) * options.dim,
-                            cudaMemcpyDeviceToHost));
-      CUDA_CHECK(cudaMemcpy(h_found_temp, d_found, KEY_NUM * sizeof(bool),
-                            cudaMemcpyDeviceToHost));
+                            hipMemcpyDeviceToHost));
+      ROCM_CHECK(hipMemcpy(h_found_temp, d_found, KEY_NUM * sizeof(bool),
+                            hipMemcpyDeviceToHost));
 
       table->accum_or_assign(KEY_NUM, d_keys, d_vectors, d_accum_or_assigns,
                              nullptr, stream);
-      CUDA_CHECK(cudaStreamSynchronize(stream));
+      ROCM_CHECK(hipStreamSynchronize(stream));
 
-      CUDA_CHECK(cudaMemset(d_vectors, 0, KEY_NUM * sizeof(V) * options.dim));
+      ROCM_CHECK(hipMemset(d_vectors, 0, KEY_NUM * sizeof(V) * options.dim));
       table->find(KEY_NUM, d_keys, d_vectors, d_found, nullptr, stream);
 
-      CUDA_CHECK(cudaStreamSynchronize(stream));
+      ROCM_CHECK(hipStreamSynchronize(stream));
       int found_num = 0;
       size_t expected_size = 0;
       for (int i = 0; i < KEY_NUM; i++) {
         if (h_found_temp[i] || !h_accum_or_assigns[i]) expected_size++;
       }
 
-      CUDA_CHECK(cudaMemset(h_found, 0, KEY_NUM * sizeof(bool)));
-      CUDA_CHECK(cudaMemset(h_vectors, 0, KEY_NUM * sizeof(V) * options.dim));
-      CUDA_CHECK(cudaMemcpy(h_keys, d_keys, KEY_NUM * sizeof(K),
-                            cudaMemcpyDeviceToHost));
-      CUDA_CHECK(cudaMemcpy(h_found, d_found, KEY_NUM * sizeof(bool),
-                            cudaMemcpyDeviceToHost));
+      ROCM_CHECK(hipMemset(h_found, 0, KEY_NUM * sizeof(bool)));
+      ROCM_CHECK(hipMemset(h_vectors, 0, KEY_NUM * sizeof(V) * options.dim));
+      ROCM_CHECK(hipMemcpy(h_keys, d_keys, KEY_NUM * sizeof(K),
+                            hipMemcpyDeviceToHost));
+      ROCM_CHECK(hipMemcpy(h_found, d_found, KEY_NUM * sizeof(bool),
+                            hipMemcpyDeviceToHost));
 
-      CUDA_CHECK(cudaMemcpy(h_vectors, d_vectors,
+      ROCM_CHECK(hipMemcpy(h_vectors, d_vectors,
                             KEY_NUM * sizeof(V) * options.dim,
-                            cudaMemcpyDeviceToHost));
+                            hipMemcpyDeviceToHost));
       for (int i = 0; i < KEY_NUM; i++) {
         if (h_found[i]) {
           found_num++;
@@ -2660,27 +2662,27 @@ void test_dynamic_rehash_on_multi_threads(size_t max_hbm_for_vectors,
                   << std::endl;
         current_capacity = table->capacity();
       }
-      CUDA_CHECK(cudaStreamSynchronize(stream));
+      ROCM_CHECK(hipStreamSynchronize(stream));
     }
-    CUDA_CHECK(cudaStreamDestroy(stream));
+    ROCM_CHECK(hipStreamDestroy(stream));
 
-    CUDA_CHECK(cudaMemcpy(h_vectors, d_vectors,
+    ROCM_CHECK(hipMemcpy(h_vectors, d_vectors,
                           KEY_NUM * sizeof(V) * options.dim,
-                          cudaMemcpyDeviceToHost));
+                          hipMemcpyDeviceToHost));
 
-    CUDA_CHECK(cudaFreeHost(h_keys));
-    CUDA_CHECK(cudaFreeHost(h_found));
-    CUDA_CHECK(cudaFreeHost(h_vectors));
-    CUDA_CHECK(cudaFreeHost(h_keys_temp));
-    CUDA_CHECK(cudaFreeHost(h_found_temp));
-    CUDA_CHECK(cudaFreeHost(h_vectors_temp));
-    CUDA_CHECK(cudaFreeHost(h_accum_or_assigns));
+    ROCM_CHECK(hipHostFree(h_keys));
+    ROCM_CHECK(hipHostFree(h_found));
+    ROCM_CHECK(hipHostFree(h_vectors));
+    ROCM_CHECK(hipHostFree(h_keys_temp));
+    ROCM_CHECK(hipHostFree(h_found_temp));
+    ROCM_CHECK(hipHostFree(h_vectors_temp));
+    ROCM_CHECK(hipHostFree(h_accum_or_assigns));
 
-    CUDA_CHECK(cudaFree(d_keys));
-    CUDA_CHECK(cudaFree(d_vectors));
-    CUDA_CHECK(cudaFree(d_found));
-    CUDA_CHECK(cudaFree(d_accum_or_assigns));
-    CUDA_CHECK(cudaDeviceSynchronize());
+    ROCM_CHECK(hipFree(d_keys));
+    ROCM_CHECK(hipFree(d_vectors));
+    ROCM_CHECK(hipFree(d_found));
+    ROCM_CHECK(hipFree(d_accum_or_assigns));
+    ROCM_CHECK(hipDeviceSynchronize());
 
     CudaCheckError();
   };
@@ -2697,7 +2699,7 @@ void test_dynamic_rehash_on_multi_threads(size_t max_hbm_for_vectors,
 template <typename K, typename V, typename S, typename Table, size_t dim = 64>
 void CheckAccumOrAssignValues(Table* table,
                               test_util::KVMSBuffer<K, V, S>& data_buffer,
-                              size_t len, cudaStream_t stream) {
+                              size_t len, hipStream_t stream) {
   std::map<K, test_util::ValueArray<V, dim>> map_before_insert;
   std::map<K, test_util::ValueArray<V, dim>> map_after_insert;
   std::unordered_set<K> map_current_batch;
@@ -2728,41 +2730,41 @@ void CheckAccumOrAssignValues(Table* table,
   h_tmp_scores = (S*)malloc(cap * sizeof(S));
   h_tmp_accum_or_assigns = (bool*)malloc(cap * sizeof(bool));
 
-  CUDA_CHECK(cudaMallocAsync(&d_tmp_keys, cap * sizeof(K), stream));
-  CUDA_CHECK(cudaMemsetAsync(d_tmp_keys, 0, cap * sizeof(K), stream));
-  CUDA_CHECK(cudaMallocAsync(&d_tmp_values, cap * dim * sizeof(V), stream));
-  CUDA_CHECK(cudaMemsetAsync(d_tmp_values, 0, cap * dim * sizeof(V), stream));
-  CUDA_CHECK(cudaMallocAsync(&d_tmp_scores, cap * sizeof(S), stream));
-  CUDA_CHECK(cudaMemsetAsync(d_tmp_scores, 0, cap * sizeof(S), stream));
-  CUDA_CHECK(
-      cudaMallocAsync(&d_tmp_accum_or_assigns, cap * sizeof(bool), stream));
-  CUDA_CHECK(
-      cudaMemsetAsync(d_tmp_accum_or_assigns, 0, cap * sizeof(bool), stream));
+  ROCM_CHECK(hipMallocAsync(&d_tmp_keys, cap * sizeof(K), stream));
+  ROCM_CHECK(hipMemsetAsync(d_tmp_keys, 0, cap * sizeof(K), stream));
+  ROCM_CHECK(hipMallocAsync(&d_tmp_values, cap * dim * sizeof(V), stream));
+  ROCM_CHECK(hipMemsetAsync(d_tmp_values, 0, cap * dim * sizeof(V), stream));
+  ROCM_CHECK(hipMallocAsync(&d_tmp_scores, cap * sizeof(S), stream));
+  ROCM_CHECK(hipMemsetAsync(d_tmp_scores, 0, cap * sizeof(S), stream));
+  ROCM_CHECK(
+      hipMallocAsync(&d_tmp_accum_or_assigns, cap * sizeof(bool), stream));
+  ROCM_CHECK(
+      hipMemsetAsync(d_tmp_accum_or_assigns, 0, cap * sizeof(bool), stream));
 
   table->find(len, keys, d_tmp_values, d_tmp_accum_or_assigns, nullptr, stream);
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_accum_or_assigns, d_tmp_accum_or_assigns,
-                             len * sizeof(bool), cudaMemcpyDeviceToHost,
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_accum_or_assigns, d_tmp_accum_or_assigns,
+                             len * sizeof(bool), hipMemcpyDeviceToHost,
                              stream));
 
-  CUDA_CHECK(cudaMemsetAsync(d_tmp_keys, 0, cap * sizeof(K), stream));
-  CUDA_CHECK(cudaMemsetAsync(d_tmp_values, 0, cap * dim * sizeof(V), stream));
-  CUDA_CHECK(cudaMemsetAsync(d_tmp_scores, 0, cap * sizeof(S), stream));
+  ROCM_CHECK(hipMemsetAsync(d_tmp_keys, 0, cap * sizeof(K), stream));
+  ROCM_CHECK(hipMemsetAsync(d_tmp_values, 0, cap * dim * sizeof(V), stream));
+  ROCM_CHECK(hipMemsetAsync(d_tmp_scores, 0, cap * sizeof(S), stream));
 
   size_t table_size_verify0 = table->export_batch(
       table->capacity(), 0, d_tmp_keys, d_tmp_values, d_tmp_scores, stream);
   ASSERT_EQ(table_size_before, table_size_verify0);
 
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_keys, d_tmp_keys,
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_keys, d_tmp_keys,
                              table_size_before * sizeof(K),
-                             cudaMemcpyDeviceToHost, stream));
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_values, d_tmp_values,
+                             hipMemcpyDeviceToHost, stream));
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_values, d_tmp_values,
                              table_size_before * dim * sizeof(V),
-                             cudaMemcpyDeviceToHost, stream));
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_scores, d_tmp_scores,
+                             hipMemcpyDeviceToHost, stream));
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_scores, d_tmp_scores,
                              table_size_before * sizeof(S),
-                             cudaMemcpyDeviceToHost, stream));
+                             hipMemcpyDeviceToHost, stream));
 
-  CUDA_CHECK(cudaStreamSynchronize(stream));
+  ROCM_CHECK(hipStreamSynchronize(stream));
 
   for (size_t i = 0; i < table_size_verify0; i++) {
     test_util::ValueArray<V, dim>* vec =
@@ -2774,7 +2776,7 @@ void CheckAccumOrAssignValues(Table* table,
   auto start = std::chrono::steady_clock::now();
   table->accum_or_assign(len, keys, values, d_tmp_accum_or_assigns, nullptr,
                          stream);
-  CUDA_CHECK(cudaStreamSynchronize(stream));
+  ROCM_CHECK(hipStreamSynchronize(stream));
   auto end = std::chrono::steady_clock::now();
   auto diff = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start);
 
@@ -2787,19 +2789,19 @@ void CheckAccumOrAssignValues(Table* table,
   ASSERT_EQ(table_size_verify1, table_size_after);
 
   size_t new_cap = table_size_after;
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_keys, d_tmp_keys,
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_keys, d_tmp_keys,
                              table_size_after * sizeof(K),
-                             cudaMemcpyDeviceToHost, stream));
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_values, d_tmp_values,
+                             hipMemcpyDeviceToHost, stream));
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_values, d_tmp_values,
                              table_size_after * dim * sizeof(V),
-                             cudaMemcpyDeviceToHost, stream));
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_scores, d_tmp_scores,
+                             hipMemcpyDeviceToHost, stream));
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_scores, d_tmp_scores,
                              table_size_after * sizeof(S),
-                             cudaMemcpyDeviceToHost, stream));
-  CUDA_CHECK(cudaMemcpyAsync(h_tmp_accum_or_assigns, d_tmp_accum_or_assigns,
+                             hipMemcpyDeviceToHost, stream));
+  ROCM_CHECK(hipMemcpyAsync(h_tmp_accum_or_assigns, d_tmp_accum_or_assigns,
                              table_size_after * sizeof(bool),
-                             cudaMemcpyDeviceToHost, stream));
-  CUDA_CHECK(cudaStreamSynchronize(stream));
+                             hipMemcpyDeviceToHost, stream));
+  ROCM_CHECK(hipStreamSynchronize(stream));
   int64_t new_cap_K = (int64_t)new_cap;
   for (int64_t i = new_cap_K - 1; i >= 0; i--) {
     test_util::ValueArray<V, dim>* vec =
@@ -2843,15 +2845,15 @@ void CheckAccumOrAssignValues(Table* table,
             << ", while table_size_after: " << table_size_after
             << ", while len: " << len << std::endl;
 
-  CUDA_CHECK(cudaFreeAsync(d_tmp_keys, stream));
-  CUDA_CHECK(cudaFreeAsync(d_tmp_values, stream));
-  CUDA_CHECK(cudaFreeAsync(d_tmp_scores, stream));
-  CUDA_CHECK(cudaFreeAsync(d_tmp_accum_or_assigns, stream));
+  ROCM_CHECK(hipFreeAsync(d_tmp_keys, stream));
+  ROCM_CHECK(hipFreeAsync(d_tmp_values, stream));
+  ROCM_CHECK(hipFreeAsync(d_tmp_scores, stream));
+  ROCM_CHECK(hipFreeAsync(d_tmp_accum_or_assigns, stream));
   free(h_tmp_keys);
   free(h_tmp_values);
   free(h_tmp_scores);
   free(h_tmp_accum_or_assigns);
-  CUDA_CHECK(cudaStreamSynchronize(stream));
+  ROCM_CHECK(hipStreamSynchronize(stream));
 }
 
 void test_accum_or_assign_values_check(size_t max_hbm_for_vectors) {
@@ -2868,8 +2870,8 @@ void test_accum_or_assign_values_check(size_t max_hbm_for_vectors) {
   using Table = nv::merlin::HashTable<K, V, S, EvictStrategy::kLru>;
   opt.dim = dim;
 
-  cudaStream_t stream;
-  CUDA_CHECK(cudaStreamCreate(&stream));
+  hipStream_t stream;
+  ROCM_CHECK(hipStreamCreate(&stream));
 
   std::unique_ptr<Table> table = std::make_unique<Table>();
   table->init(opt);

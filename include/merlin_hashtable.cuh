@@ -1,3 +1,5 @@
+#include "hip/hip_runtime.h"
+#include "hip/hip_runtime.h"
 /*
  * Copyright (c) 2022, NVIDIA CORPORATION.
  *
@@ -21,7 +23,7 @@
 #include <thrust/sort.h>
 #include <atomic>
 #include <cstdint>
-#include <cub/cub.cuh>
+#include <hipcub/hipcub.hpp>
 #include <iostream>
 #include <limits>
 #include <memory>
@@ -96,8 +98,8 @@ struct HashTableOptions {
   size_t max_bucket_size = 128;    ///< The length of each bucket.
   size_t dim = 64;                 ///< The dimension of the vectors.
   float max_load_factor = 0.5f;    ///< The max load factor before rehashing.
-  int block_size = 128;            ///< The default block size for CUDA kernels.
-  int io_block_size = 1024;        ///< The block size for IO CUDA kernels.
+  int block_size = 128;            ///< The default block size for ROCM kernels.
+  int io_block_size = 1024;        ///< The block size for IO ROCM kernels.
   int device_id = -1;              ///< The ID of device.
   bool io_by_cpu = false;  ///< The flag indicating if the CPU handles IO.
   bool use_constant_memory = false;  ///< reserved
@@ -167,9 +169,9 @@ using EraseIfPredict = bool (*)(
 );
 
 #if THRUST_VERSION >= 101600
-static constexpr auto& thrust_par = thrust::cuda::par_nosync;
+static constexpr auto& thrust_par = thrust::hip::par_nosync;
 #else
-static constexpr auto& thrust_par = thrust::cuda::par;
+static constexpr auto& thrust_par = thrust::hip::par;
 #endif
 
 template <typename K, typename V, typename S = uint64_t>
@@ -216,7 +218,7 @@ class HashTableBase {
    * applied.
    * @endparblock
    *
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    * @param unique_key If all keys in the same batch are unique.
    *
    * @param ignore_evict_strategy A boolean option indicating whether if
@@ -229,7 +231,7 @@ class HashTableBase {
                                 const key_type* keys,                // (n)
                                 const value_type* values,            // (n, DIM)
                                 const score_type* scores = nullptr,  // (n)
-                                cudaStream_t stream = 0, bool unique_key = true,
+                                hipStream_t stream = 0, bool unique_key = true,
                                 bool ignore_evict_strategy = false) = 0;
 
   /**
@@ -268,7 +270,7 @@ class HashTableBase {
    * @param d_evicted_counter The number of elements evicted on GPU-accessible
    * memory. @notice The caller should guarantee it is set to `0` before
    * calling.
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    * @param unique_key If all keys in the same batch are unique.
    *
    * @param ignore_evict_strategy A boolean option indicating whether if
@@ -285,7 +287,7 @@ class HashTableBase {
                                 value_type* evicted_values,    // (n, DIM)
                                 score_type* evicted_scores,    // (n)
                                 size_type* d_evicted_counter,  // (1)
-                                cudaStream_t stream = 0, bool unique_key = true,
+                                hipStream_t stream = 0, bool unique_key = true,
                                 bool ignore_evict_strategy = false) = 0;
 
   /**
@@ -321,7 +323,7 @@ class HashTableBase {
    * applied.
    * @endparblock
    *
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    * @param unique_key If all keys in the same batch are unique.
    *
    * @param ignore_evict_strategy A boolean option indicating whether if
@@ -339,7 +341,7 @@ class HashTableBase {
                                      key_type* evicted_keys,      // (n)
                                      value_type* evicted_values,  // (n, DIM)
                                      score_type* evicted_scores,  // (n)
-                                     cudaStream_t stream = 0,
+                                     hipStream_t stream = 0,
                                      bool unique_key = true,
                                      bool ignore_evict_strategy = false) = 0;
 
@@ -375,7 +377,7 @@ class HashTableBase {
    * applied.
    * @endparblock
    *
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    *
    * @param ignore_evict_strategy A boolean option indicating whether if
    * the accum_or_assign ignores the evict strategy of table with current
@@ -388,7 +390,7 @@ class HashTableBase {
                                const value_type* value_or_deltas,   // (n, DIM)
                                const bool* accum_or_assigns,        // (n)
                                const score_type* scores = nullptr,  // (n)
-                               cudaStream_t stream = 0,
+                               hipStream_t stream = 0,
                                bool ignore_evict_strategy = false) = 0;
 
   /**
@@ -404,14 +406,14 @@ class HashTableBase {
    * @parblock
    * If @p scores is `nullptr`, the score for each key will not be returned.
    * @endparblock
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    * @param unique_key If all keys in the same batch are unique.
    *
    */
   virtual void find_or_insert(const size_type n, const key_type* keys,  // (n)
                               value_type* values,            // (n * DIM)
                               score_type* scores = nullptr,  // (n)
-                              cudaStream_t stream = 0, bool unique_key = true,
+                              hipStream_t stream = 0, bool unique_key = true,
                               bool ignore_evict_strategy = false) = 0;
 
   /**
@@ -431,7 +433,7 @@ class HashTableBase {
    * @parblock
    * If @p scores is `nullptr`, the score for each key will not be returned.
    * @endparblock
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    * @param unique_key If all keys in the same batch are unique.
    * @param locked_key_ptrs If it isn't nullptr then the keys in the table will
    * be locked, and key's address will write to locked_key_ptrs. Using
@@ -442,7 +444,7 @@ class HashTableBase {
                               value_type** values,                      // (n)
                               bool* founds,                             // (n)
                               score_type* scores = nullptr,             // (n)
-                              cudaStream_t stream = 0, bool unique_key = true,
+                              hipStream_t stream = 0, bool unique_key = true,
                               bool ignore_evict_strategy = false,
                               key_type** locked_key_ptrs = nullptr) = 0;
 
@@ -458,14 +460,14 @@ class HashTableBase {
    * @param succeededs The status that indicates if the lock operation is
    * succeed.
    * @param scores The scores of the input keys will set to scores if provided.
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    *
    */
   virtual void lock_keys(const size_type n,
                          key_type const* keys,        // (n)
                          key_type** locked_key_ptrs,  // (n)
                          bool* succeededs = nullptr,  // (n)
-                         cudaStream_t stream = 0,
+                         hipStream_t stream = 0,
                          score_type const* scores = nullptr) = 0;
 
   /**
@@ -480,14 +482,14 @@ class HashTableBase {
    * @param keys The keys to search on GPU-accessible memory with shape (n).
    * @param succeededs The status that indicates if the unlock operation is
    * succeed.
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    *
    */
   virtual void unlock_keys(const size_type n,
                            key_type** locked_key_ptrs,  // (n)
                            const key_type* keys,        // (n)
                            bool* succeededs = nullptr,  // (n)
-                           cudaStream_t stream = 0) = 0;
+                           hipStream_t stream = 0) = 0;
 
   /**
    * @brief Assign new key-value-score tuples into the hash table.
@@ -509,7 +511,7 @@ class HashTableBase {
    * applied.
    * @endparblock
    *
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    *
    * @param unique_key If all keys in the same batch are unique.
    */
@@ -517,7 +519,7 @@ class HashTableBase {
                       const key_type* keys,                // (n)
                       const value_type* values,            // (n, DIM)
                       const score_type* scores = nullptr,  // (n)
-                      cudaStream_t stream = 0, bool unique_key = true) = 0;
+                      hipStream_t stream = 0, bool unique_key = true) = 0;
 
   /**
    * @brief Assign new scores for keys.
@@ -535,14 +537,14 @@ class HashTableBase {
    * applied.
    * @endparblock
    *
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    *
    * @param unique_key If all keys in the same batch are unique.
    */
   virtual void assign_scores(const size_type n,
                              const key_type* keys,                // (n)
                              const score_type* scores = nullptr,  // (n)
-                             cudaStream_t stream = 0,
+                             hipStream_t stream = 0,
                              bool unique_key = true) = 0;
 
   /**
@@ -551,7 +553,7 @@ class HashTableBase {
   virtual void assign(const size_type n,
                       const key_type* keys,                // (n)
                       const score_type* scores = nullptr,  // (n)
-                      cudaStream_t stream = 0, bool unique_key = true) = 0;
+                      hipStream_t stream = 0, bool unique_key = true) = 0;
 
   /**
    * @brief Assign new values for each keys .
@@ -563,14 +565,14 @@ class HashTableBase {
    * @param values The values need to be updated, which must be on
    * GPU-accessible memory with shape (n, DIM).
    *
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    *
    * @param unique_key If all keys in the same batch are unique.
    */
   virtual void assign_values(const size_type n,
                              const key_type* keys,      // (n)
                              const value_type* values,  // (n, DIM)
-                             cudaStream_t stream = 0,
+                             hipStream_t stream = 0,
                              bool unique_key = true) = 0;
   /**
    * @brief Searches the hash table for the specified keys.
@@ -587,14 +589,14 @@ class HashTableBase {
    * @parblock
    * If @p scores is `nullptr`, the score for each key will not be returned.
    * @endparblock
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    *
    */
   virtual void find(const size_type n, const key_type* keys,  // (n)
                     value_type* values,                       // (n, DIM)
                     bool* founds,                             // (n)
                     score_type* scores = nullptr,             // (n)
-                    cudaStream_t stream = 0) const = 0;
+                    hipStream_t stream = 0) const = 0;
 
   /**
    * @brief Searches the hash table for the specified keys.
@@ -615,7 +617,7 @@ class HashTableBase {
    * @parblock
    * If @p scores is `nullptr`, the score for each key will not be returned.
    * @endparblock
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    */
   virtual void find(const size_type n, const key_type* keys,  // (n)
                     value_type* values,                       // (n, DIM)
@@ -623,7 +625,7 @@ class HashTableBase {
                     int* missed_indices,                      // (n)
                     int* missed_size,                         // scalar
                     score_type* scores = nullptr,             // (n)
-                    cudaStream_t stream = 0) const = 0;
+                    hipStream_t stream = 0) const = 0;
 
   /**
    * @brief Searches the hash table for the specified keys and returns address
@@ -643,7 +645,7 @@ class HashTableBase {
    * @parblock
    * If @p scores is `nullptr`, the score for each key will not be returned.
    * @endparblock
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    * @param unique_key If all keys in the same batch are unique.
    *
    */
@@ -651,7 +653,7 @@ class HashTableBase {
                     value_type** values,                      // (n)
                     bool* founds,                             // (n)
                     score_type* scores = nullptr,             // (n)
-                    cudaStream_t stream = 0, bool unique_key = true) const = 0;
+                    hipStream_t stream = 0, bool unique_key = true) const = 0;
 
   /**
    * @brief Searches the hash table for the specified keys and returns address
@@ -671,7 +673,7 @@ class HashTableBase {
    * @parblock
    * If @p scores is `nullptr`, the score for each key will not be returned.
    * @endparblock
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    * @param unique_key If all keys in the same batch are unique.
    *
    */
@@ -679,7 +681,7 @@ class HashTableBase {
                                value_type** values,                      // (n)
                                bool* founds,                             // (n)
                                score_type* scores = nullptr,             // (n)
-                               cudaStream_t stream = 0,
+                               hipStream_t stream = 0,
                                bool unique_key = true) = 0;
 
   /**
@@ -690,29 +692,29 @@ class HashTableBase {
    * @param keys The keys to search on GPU-accessible memory with shape (n).
    * @param founds The result that indicates if the keys are found, and should
    * be allocated by caller on GPU-accessible memory with shape (n).
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    *
    */
   virtual void contains(const size_type n, const key_type* keys,  // (n)
                         bool* founds,                             // (n)
-                        cudaStream_t stream = 0) const = 0;
+                        hipStream_t stream = 0) const = 0;
 
   /**
    * @brief Removes specified elements from the hash table.
    *
    * @param n The number of keys to remove.
    * @param keys The keys to remove on GPU-accessible memory.
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    *
    */
   virtual void erase(const size_type n, const key_type* keys,
-                     cudaStream_t stream = 0) = 0;
+                     hipStream_t stream = 0) = 0;
 
   /**
    * @brief Removes all of the elements in the hash table with no release
    * object.
    */
-  virtual void clear(cudaStream_t stream = 0) = 0;
+  virtual void clear(hipStream_t stream = 0) = 0;
 
   /**
    * @brief Exports a certain number of the key-value-score tuples from the
@@ -729,7 +731,7 @@ class HashTableBase {
    * If @p scores is `nullptr`, the score for each key will not be returned.
    * @endparblock
    *
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    *
    * @return The number of elements dumped.
    *
@@ -742,29 +744,29 @@ class HashTableBase {
                             key_type* keys,                // (n)
                             value_type* values,            // (n, DIM)
                             score_type* scores = nullptr,  // (n)
-                            cudaStream_t stream = 0) const = 0;
+                            hipStream_t stream = 0) const = 0;
 
   virtual size_type export_batch(const size_type n, const size_type offset,
                                  key_type* keys,                // (n)
                                  value_type* values,            // (n, DIM)
                                  score_type* scores = nullptr,  // (n)
-                                 cudaStream_t stream = 0) const = 0;
+                                 hipStream_t stream = 0) const = 0;
 
   /**
    * @brief Indicates if the hash table has no elements.
    *
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    * @return `true` if the table is empty and `false` otherwise.
    */
-  virtual bool empty(cudaStream_t stream = 0) const = 0;
+  virtual bool empty(hipStream_t stream = 0) const = 0;
 
   /**
    * @brief Returns the hash table size.
    *
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    * @return The table size.
    */
-  virtual size_type size(cudaStream_t stream = 0) const = 0;
+  virtual size_type size(hipStream_t stream = 0) const = 0;
 
   /**
    * @brief Returns the hash table capacity.
@@ -789,20 +791,20 @@ class HashTableBase {
    * any change to the hash table.
    *
    * @param new_capacity The requested capacity for the hash table.
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    */
   virtual void reserve(const size_type new_capacity,
-                       cudaStream_t stream = 0) = 0;
+                       hipStream_t stream = 0) = 0;
 
   /**
    * @brief Returns the average number of elements per slot, that is, size()
    * divided by capacity().
    *
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    *
    * @return The load factor
    */
-  virtual float load_factor(cudaStream_t stream = 0) const = 0;
+  virtual float load_factor(hipStream_t stream = 0) const = 0;
 
   /**
    * @brief Set max_capacity of the table.
@@ -840,13 +842,13 @@ class HashTableBase {
    * @param max_workspace_size Saving is conducted in chunks. This value denotes
    * the maximum amount of temporary memory to use when dumping the table.
    * Larger values *can* lead to higher performance.
-   * @param stream The CUDA stream used to execute the operation.
+   * @param stream The ROCM stream used to execute the operation.
    *
    * @return Number of KV pairs saved to file.
    */
   virtual size_type save(BaseKVFile<K, V, S>* file,
                          const size_t max_workspace_size = 1L * 1024 * 1024,
-                         cudaStream_t stream = 0) const = 0;
+                         hipStream_t stream = 0) const = 0;
 
   /**
    * @brief Load keys, vectors, scores from file to table.
@@ -855,13 +857,13 @@ class HashTableBase {
    * @param max_workspace_size Loading is conducted in chunks. This value
    * denotes the maximum size of such chunks. Larger values *can* lead to higher
    * performance.
-   * @param stream The CUDA stream used to execute the operation.
+   * @param stream The ROCM stream used to execute the operation.
    *
    * @return Number of keys loaded from file.
    */
   virtual size_type load(BaseKVFile<K, V, S>* file,
                          const size_t max_workspace_size = 1L * 1024 * 1024,
-                         cudaStream_t stream = 0) = 0;
+                         hipStream_t stream = 0) = 0;
 
   virtual void set_global_epoch(const uint64_t epoch) = 0;
 };
@@ -883,7 +885,7 @@ class HashTableBase {
  *
  * @tparam K The data type of the key.
  * @tparam V The data type of the vector's item type.
- *         The item data type should be a basic data type of C++/CUDA.
+ *         The item data type should be a basic data type of C++/ROCM.
  * @tparam S The data type for `score`.
  *           The currently supported data type is only `uint64_t`.
  *
@@ -927,7 +929,7 @@ class HashTable : public HashTableBase<K, V, S> {
    */
   ~HashTable() {
     if (initialized_) {
-      CUDA_CHECK(cudaDeviceSynchronize());
+      ROCM_CHECK(hipDeviceSynchronize());
 
       initialized_ = false;
       destroy_table<key_type, value_type, score_type>(&table_, allocator_);
@@ -935,7 +937,7 @@ class HashTable : public HashTableBase<K, V, S> {
       dev_mem_pool_.reset();
       host_mem_pool_.reset();
 
-      CUDA_CHECK(cudaDeviceSynchronize());
+      ROCM_CHECK(hipDeviceSynchronize());
       if (default_allocator_ && allocator_ != nullptr) {
         delete allocator_;
       }
@@ -963,7 +965,7 @@ class HashTable : public HashTableBase<K, V, S> {
     MERLIN_CHECK(options.reserved_key_start_bit >= 0 &&
                      options.reserved_key_start_bit <= MAX_RESERVED_KEY_BIT,
                  "options.reserved_key_start_bit should >= 0 and <= 62.");
-    CUDA_CHECK(init_reserved_keys(options.reserved_key_start_bit));
+    ROCM_CHECK(init_reserved_keys(options.reserved_key_start_bit));
 
     default_allocator_ = (allocator == nullptr);
     allocator_ = (allocator == nullptr) ? (new DefaultAllocator()) : allocator;
@@ -971,9 +973,9 @@ class HashTable : public HashTableBase<K, V, S> {
     thrust_allocator_.set_allocator(allocator_);
 
     if (options_.device_id >= 0) {
-      CUDA_CHECK(cudaSetDevice(options_.device_id));
+      ROCM_CHECK(hipSetDevice(options_.device_id));
     } else {
-      CUDA_CHECK(cudaGetDevice(&(options_.device_id)));
+      ROCM_CHECK(hipGetDevice(&(options_.device_id)));
     }
 
     MERLIN_CHECK(ispow2(static_cast<uint32_t>(options_.max_bucket_size)),
@@ -995,8 +997,8 @@ class HashTable : public HashTableBase<K, V, S> {
         "of cache line size");
 
     // Construct table.
-    cudaDeviceProp deviceProp;
-    CUDA_CHECK(cudaGetDeviceProperties(&deviceProp, options_.device_id));
+    hipDeviceProp_t deviceProp;
+    ROCM_CHECK(hipGetDeviceProperties(&deviceProp, options_.device_id));
     shared_mem_size_ = deviceProp.sharedMemPerBlock;
     sm_cnt_ = deviceProp.multiProcessorCount;
     max_threads_per_block_ = deviceProp.maxThreadsPerBlock;
@@ -1020,7 +1022,7 @@ class HashTable : public HashTableBase<K, V, S> {
     host_mem_pool_ = std::make_unique<MemoryPool<HostAllocator<char>>>(
         options_.host_memory_pool, allocator_);
 
-    CUDA_CHECK(cudaDeviceSynchronize());
+    ROCM_CHECK(hipDeviceSynchronize());
 
     initialized_ = true;
     CudaCheckError();
@@ -1050,7 +1052,7 @@ class HashTable : public HashTableBase<K, V, S> {
    * applied.
    * @endparblock
    *
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    * @param unique_key If all keys in the same batch are unique.
    *
    * @param ignore_evict_strategy A boolean option indicating whether if
@@ -1063,7 +1065,7 @@ class HashTable : public HashTableBase<K, V, S> {
                         const key_type* keys,                // (n)
                         const value_type* values,            // (n, DIM)
                         const score_type* scores = nullptr,  // (n)
-                        cudaStream_t stream = 0, bool unique_key = true,
+                        hipStream_t stream = 0, bool unique_key = true,
                         bool ignore_evict_strategy = false) {
     if (ignore_evict_strategy) {
       insert_or_assign_impl<EvictStrategy::kCustomized>(
@@ -1079,7 +1081,7 @@ class HashTable : public HashTableBase<K, V, S> {
                              const key_type* keys,      // (n)
                              const value_type* values,  // (n, DIM)
                              const score_type* scores,  // (n)
-                             cudaStream_t stream, bool unique_key,
+                             hipStream_t stream, bool unique_key,
                              bool ignore_evict_strategy) {
     if (n == 0) {
       return;
@@ -1145,7 +1147,7 @@ class HashTable : public HashTableBase<K, V, S> {
       auto d_sort_storage = get_vector<5>(mv, temp_storage);
       sortOp.set_storage(reinterpret_cast<void*>(d_sort_storage));
 
-      CUDA_CHECK(cudaMemsetAsync(d_dst, 0, dev_ws_size, stream));
+      ROCM_CHECK(hipMemsetAsync(d_dst, 0, dev_ws_size, stream));
 
       constexpr uint32_t MinBucketCapacityFilter =
           sizeof(VecD_Load) / sizeof(D);
@@ -1199,12 +1201,12 @@ class HashTable : public HashTableBase<K, V, S> {
         auto h_src_offset_sorted = get_vector<1>(mv1, host_temp_storage);
         auto h_values = get_vector<2>(mv1, host_temp_storage);
 
-        CUDA_CHECK(cudaMemcpyAsync(h_dst_sorted, d_dst_sorted, mv1.offset(2),
-                                   cudaMemcpyDeviceToHost, stream));
-        CUDA_CHECK(cudaMemcpyAsync(h_values, values,
+        ROCM_CHECK(hipMemcpyAsync(h_dst_sorted, d_dst_sorted, mv1.offset(2),
+                                   hipMemcpyDeviceToHost, stream));
+        ROCM_CHECK(hipMemcpyAsync(h_values, values,
                                    n * dim() * sizeof(value_type),
-                                   cudaMemcpyDeviceToHost, stream));
-        CUDA_CHECK(cudaStreamSynchronize(stream));
+                                   hipMemcpyDeviceToHost, stream));
+        ROCM_CHECK(hipStreamSynchronize(stream));
 
         write_by_cpu<value_type>(h_dst_sorted, h_values, h_src_offset_sorted,
                                  dim(), n);
@@ -1256,7 +1258,7 @@ class HashTable : public HashTableBase<K, V, S> {
    * @param d_evicted_counter The number of elements evicted on GPU-accessible
    * memory. @notice The caller should guarantee it is set to `0` before
    * calling.
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    * @param unique_key If all keys in the same batch are unique.
    *
    * @param ignore_evict_strategy A boolean option indicating whether if
@@ -1273,7 +1275,7 @@ class HashTable : public HashTableBase<K, V, S> {
                         value_type* evicted_values,    // (n, DIM)
                         score_type* evicted_scores,    // (n)
                         size_type* d_evicted_counter,  // (1)
-                        cudaStream_t stream = 0, bool unique_key = true,
+                        hipStream_t stream = 0, bool unique_key = true,
                         bool ignore_evict_strategy = false) {
     if (n == 0) {
       return;
@@ -1346,13 +1348,13 @@ class HashTable : public HashTableBase<K, V, S> {
           reinterpret_cast<value_type*>(d_offsets + n_offsets);
       auto d_masks = reinterpret_cast<bool*>(tmp_evict_values + n * dim());
 
-      CUDA_CHECK(
-          cudaMemsetAsync(d_offsets, 0, n_offsets * sizeof(int64_t), stream));
-      CUDA_CHECK(cudaMemsetAsync(d_masks, 0, n * sizeof(bool), stream));
+      ROCM_CHECK(
+          hipMemsetAsync(d_offsets, 0, n_offsets * sizeof(int64_t), stream));
+      ROCM_CHECK(hipMemsetAsync(d_masks, 0, n * sizeof(bool), stream));
 
       size_type block_size = options_.block_size;
       size_type grid_size = SAFE_GET_GRID_SIZE(n, block_size);
-      CUDA_CHECK(memset64Async(tmp_evict_keys, EMPTY_KEY_CPU, n, stream));
+      ROCM_CHECK(memset64Async(tmp_evict_keys, EMPTY_KEY_CPU, n, stream));
       using Selector =
           SelectUpsertAndEvictKernelWithIO<key_type, value_type, score_type,
                                            evict_strategy>;
@@ -1369,11 +1371,11 @@ class HashTable : public HashTableBase<K, V, S> {
 
       void* d_temp_storage = nullptr;
       size_t temp_storage_bytes = 0;
-      cub::DeviceScan::ExclusiveSum(d_temp_storage, temp_storage_bytes,
+      hipcub::DeviceScan::ExclusiveSum(d_temp_storage, temp_storage_bytes,
                                     d_offsets, d_offsets, n_offsets, stream);
       auto dev_ws1{dev_mem_pool_->get_workspace<1>(temp_storage_bytes, stream)};
       d_temp_storage = dev_ws1.get<void*>(0);
-      cub::DeviceScan::ExclusiveSum(d_temp_storage, temp_storage_bytes,
+      hipcub::DeviceScan::ExclusiveSum(d_temp_storage, temp_storage_bytes,
                                     d_offsets, d_offsets, n_offsets, stream);
 
       compact_key_value_score_kernel<K, V, S, int64_t, TILE_SIZE>
@@ -1416,7 +1418,7 @@ class HashTable : public HashTableBase<K, V, S> {
    * applied.
    * @endparblock
    *
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    * @param unique_key If all keys in the same batch are unique.
    *
    * @param ignore_evict_strategy A boolean option indicating whether if
@@ -1434,7 +1436,7 @@ class HashTable : public HashTableBase<K, V, S> {
                              key_type* evicted_keys,      // (n)
                              value_type* evicted_values,  // (n, DIM)
                              score_type* evicted_scores,  // (n)
-                             cudaStream_t stream = 0, bool unique_key = true,
+                             hipStream_t stream = 0, bool unique_key = true,
                              bool ignore_evict_strategy = false) {
     if (n == 0) {
       return 0;
@@ -1442,17 +1444,17 @@ class HashTable : public HashTableBase<K, V, S> {
     auto dev_ws{dev_mem_pool_->get_workspace<1>(sizeof(size_type), stream)};
     size_type* d_evicted_counter{dev_ws.get<size_type*>(0)};
 
-    CUDA_CHECK(
-        cudaMemsetAsync(d_evicted_counter, 0, sizeof(size_type), stream));
+    ROCM_CHECK(
+        hipMemsetAsync(d_evicted_counter, 0, sizeof(size_type), stream));
     insert_and_evict(n, keys, values, scores, evicted_keys, evicted_values,
                      evicted_scores, d_evicted_counter, stream, unique_key,
                      ignore_evict_strategy);
 
     size_type h_evicted_counter = 0;
-    CUDA_CHECK(cudaMemcpyAsync(&h_evicted_counter, d_evicted_counter,
-                               sizeof(size_type), cudaMemcpyDeviceToHost,
+    ROCM_CHECK(hipMemcpyAsync(&h_evicted_counter, d_evicted_counter,
+                               sizeof(size_type), hipMemcpyDeviceToHost,
                                stream));
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
     CudaCheckError();
     return h_evicted_counter;
   }
@@ -1489,7 +1491,7 @@ class HashTable : public HashTableBase<K, V, S> {
    * applied.
    * @endparblock
    *
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    *
    * @param ignore_evict_strategy A boolean option indicating whether if
    * the accum_or_assign ignores the evict strategy of table with current
@@ -1502,7 +1504,7 @@ class HashTable : public HashTableBase<K, V, S> {
                        const value_type* value_or_deltas,   // (n, DIM)
                        const bool* accum_or_assigns,        // (n)
                        const score_type* scores = nullptr,  // (n)
-                       cudaStream_t stream = 0,
+                       hipStream_t stream = 0,
                        bool ignore_evict_strategy = false) {
     if (n == 0) {
       return;
@@ -1554,7 +1556,7 @@ class HashTable : public HashTableBase<K, V, S> {
       auto d_sort_storage = get_vector<5>(mv, temp_storage);
       sortOp.set_storage(reinterpret_cast<void*>(d_sort_storage));
 
-      CUDA_CHECK(cudaMemsetAsync(dst, 0, dev_ws_size, stream));
+      ROCM_CHECK(hipMemsetAsync(dst, 0, dev_ws_size, stream));
 
       {
         const size_t block_size = options_.block_size;
@@ -1599,14 +1601,14 @@ class HashTable : public HashTableBase<K, V, S> {
    * @parblock
    * If @p scores is `nullptr`, the score for each key will not be returned.
    * @endparblock
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    * @param unique_key If all keys in the same batch are unique.
    *
    */
   void find_or_insert(const size_type n, const key_type* keys,  // (n)
                       value_type* values,                       // (n * DIM)
                       score_type* scores = nullptr,             // (n)
-                      cudaStream_t stream = 0, bool unique_key = true,
+                      hipStream_t stream = 0, bool unique_key = true,
                       bool ignore_evict_strategy = false) {
     if (n == 0) {
       return;
@@ -1674,7 +1676,7 @@ class HashTable : public HashTableBase<K, V, S> {
       auto d_sort_storage = get_vector<6>(mv, temp_storage);
       sortOp.set_storage(reinterpret_cast<void*>(d_sort_storage));
 
-      CUDA_CHECK(cudaMemsetAsync(d_table_value_addrs, 0, dev_ws_size, stream));
+      ROCM_CHECK(hipMemsetAsync(d_table_value_addrs, 0, dev_ws_size, stream));
 
       constexpr uint32_t MinBucketCapacityFilter =
           sizeof(VecD_Load) / sizeof(D);
@@ -1730,20 +1732,20 @@ class HashTable : public HashTableBase<K, V, S> {
         auto h_founds = get_vector<2>(mv1, host_temp_storage);
         auto h_param_values = get_vector<3>(mv1, host_temp_storage);
 
-        CUDA_CHECK(cudaMemcpyAsync(h_table_value_addrs_sorted,
+        ROCM_CHECK(hipMemcpyAsync(h_table_value_addrs_sorted,
                                    d_table_value_addrs_sorted, mv1.offset(3),
-                                   cudaMemcpyDeviceToHost, stream));
-        CUDA_CHECK(cudaMemcpyAsync(h_param_values, values,
+                                   hipMemcpyDeviceToHost, stream));
+        ROCM_CHECK(hipMemcpyAsync(h_param_values, values,
                                    n * sizeof(value_type) * dim(),
-                                   cudaMemcpyDeviceToHost, stream));
-        CUDA_CHECK(cudaStreamSynchronize(stream));
+                                   hipMemcpyDeviceToHost, stream));
+        ROCM_CHECK(hipStreamSynchronize(stream));
 
         read_or_write_by_cpu<value_type>(
             h_table_value_addrs_sorted, h_param_values,
             h_param_key_index_sorted, h_founds, dim(), n);
-        CUDA_CHECK(cudaMemcpyAsync(values, h_param_values,
+        ROCM_CHECK(hipMemcpyAsync(values, h_param_values,
                                    n * sizeof(value_type) * dim(),
-                                   cudaMemcpyHostToDevice, stream));
+                                   hipMemcpyHostToDevice, stream));
       } else {
         const size_t block_size = options_.io_block_size;
         const size_t N = n * dim();
@@ -1776,7 +1778,7 @@ class HashTable : public HashTableBase<K, V, S> {
    * @parblock
    * If @p scores is `nullptr`, the score for each key will not be returned.
    * @endparblock
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    * @param unique_key If all keys in the same batch are unique.
    * @param locked_key_ptrs If it isn't nullptr then the keys in the table will
    * be locked, and key's address will write to locked_key_ptrs. Using
@@ -1787,7 +1789,7 @@ class HashTable : public HashTableBase<K, V, S> {
                       value_type** values,                      // (n)
                       bool* founds,                             // (n)
                       score_type* scores = nullptr,             // (n)
-                      cudaStream_t stream = 0, bool unique_key = true,
+                      hipStream_t stream = 0, bool unique_key = true,
                       bool ignore_evict_strategy = false,
                       key_type** locked_key_ptrs = nullptr) {
     if (n == 0) {
@@ -1833,7 +1835,7 @@ class HashTable : public HashTableBase<K, V, S> {
       const size_type dev_ws_size{n * sizeof(key_type**)};
       auto dev_ws{dev_mem_pool_->get_workspace<1>(dev_ws_size, stream)};
       auto keys_ptr{dev_ws.get<key_type**>(0)};
-      CUDA_CHECK(cudaMemsetAsync(keys_ptr, 0, dev_ws_size, stream));
+      ROCM_CHECK(hipMemsetAsync(keys_ptr, 0, dev_ws_size, stream));
 
       find_or_insert_ptr_kernel_lock_key<key_type, value_type, score_type,
                                          BLOCK_SIZE, evict_strategy>
@@ -1874,7 +1876,7 @@ class HashTable : public HashTableBase<K, V, S> {
    * @param keys The keys to search on GPU-accessible memory with shape (n).
    * @param success The status that indicates if the lock operation is
    * succeed.
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    * @param scores The scores of the input keys will set to scores if provided.
    *
    */
@@ -1882,7 +1884,7 @@ class HashTable : public HashTableBase<K, V, S> {
                  key_type const* keys,        // (n)
                  key_type** locked_key_ptrs,  // (n)
                  bool* success = nullptr,     // (n)
-                 cudaStream_t stream = 0, score_type const* scores = nullptr) {
+                 hipStream_t stream = 0, score_type const* scores = nullptr) {
     if (n == 0) {
       return;
     }
@@ -1919,13 +1921,13 @@ class HashTable : public HashTableBase<K, V, S> {
    * @param keys The keys to search on GPU-accessible memory with shape (n).
    * @param success The status that indicates if the unlock operation is
    * succeed.
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    *
    */
   void unlock_keys(const size_type n, key_type** locked_key_ptrs,  // (n)
                    const key_type* keys,                           // (n)
                    bool* success = nullptr,                        // (n)
-                   cudaStream_t stream = 0) {
+                   hipStream_t stream = 0) {
     if (n == 0) {
       return;
     }
@@ -1962,7 +1964,7 @@ class HashTable : public HashTableBase<K, V, S> {
    * applied.
    * @endparblock
    *
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    *
    * @param unique_key If all keys in the same batch are unique.
    */
@@ -1970,7 +1972,7 @@ class HashTable : public HashTableBase<K, V, S> {
               const key_type* keys,                // (n)
               const value_type* values,            // (n, DIM)
               const score_type* scores = nullptr,  // (n)
-              cudaStream_t stream = 0, bool unique_key = true) {
+              hipStream_t stream = 0, bool unique_key = true) {
     if (n == 0) {
       return;
     }
@@ -2025,7 +2027,7 @@ class HashTable : public HashTableBase<K, V, S> {
       auto d_sort_storage = get_vector<5>(mv, temp_storage);
       sortOp.set_storage(reinterpret_cast<void*>(d_sort_storage));
 
-      CUDA_CHECK(cudaMemsetAsync(d_dst, 0, dev_ws_size, stream));
+      ROCM_CHECK(hipMemsetAsync(d_dst, 0, dev_ws_size, stream));
 
       constexpr uint32_t MinBucketCapacityFilter =
           sizeof(VecD_Load) / sizeof(D);
@@ -2079,12 +2081,12 @@ class HashTable : public HashTableBase<K, V, S> {
         auto h_src_offset_sorted = get_vector<1>(mv1, host_temp_storage);
         auto h_values = get_vector<2>(mv1, host_temp_storage);
 
-        CUDA_CHECK(cudaMemcpyAsync(h_dst_sorted, d_dst_sorted, mv1.offset(2),
-                                   cudaMemcpyDeviceToHost, stream));
-        CUDA_CHECK(cudaMemcpyAsync(h_values, values,
+        ROCM_CHECK(hipMemcpyAsync(h_dst_sorted, d_dst_sorted, mv1.offset(2),
+                                   hipMemcpyDeviceToHost, stream));
+        ROCM_CHECK(hipMemcpyAsync(h_values, values,
                                    n * dim() * sizeof(value_type),
-                                   cudaMemcpyDeviceToHost, stream));
-        CUDA_CHECK(cudaStreamSynchronize(stream));
+                                   hipMemcpyDeviceToHost, stream));
+        ROCM_CHECK(hipStreamSynchronize(stream));
 
         write_by_cpu<value_type>(h_dst_sorted, h_values, h_src_offset_sorted,
                                  dim(), n);
@@ -2118,14 +2120,14 @@ class HashTable : public HashTableBase<K, V, S> {
    * applied.
    * @endparblock
    *
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    *
    * @param unique_key If all keys in the same batch are unique.
    */
   void assign_scores(const size_type n,
                      const key_type* keys,                // (n)
                      const score_type* scores = nullptr,  // (n)
-                     cudaStream_t stream = 0, bool unique_key = true) {
+                     hipStream_t stream = 0, bool unique_key = true) {
     if (n == 0) {
       return;
     }
@@ -2171,7 +2173,7 @@ class HashTable : public HashTableBase<K, V, S> {
   void assign(const size_type n,
               const key_type* keys,                // (n)
               const score_type* scores = nullptr,  // (n)
-              cudaStream_t stream = 0, bool unique_key = true) {
+              hipStream_t stream = 0, bool unique_key = true) {
     assign_scores(n, keys, scores, stream, unique_key);
   }
 
@@ -2185,14 +2187,14 @@ class HashTable : public HashTableBase<K, V, S> {
    * @param values The values need to be updated, which must be on
    * GPU-accessible memory with shape (n, DIM).
    *
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    *
    * @param unique_key If all keys in the same batch are unique.
    */
   void assign_values(const size_type n,
                      const key_type* keys,      // (n)
                      const value_type* values,  // (n, DIM)
-                     cudaStream_t stream = 0, bool unique_key = true) {
+                     hipStream_t stream = 0, bool unique_key = true) {
     if (n == 0) {
       return;
     }
@@ -2244,7 +2246,7 @@ class HashTable : public HashTableBase<K, V, S> {
       auto d_sort_storage = get_vector<5>(mv, temp_storage);
       sortOp.set_storage(reinterpret_cast<void*>(d_sort_storage));
 
-      CUDA_CHECK(cudaMemsetAsync(d_dst, 0, dev_ws_size, stream));
+      ROCM_CHECK(hipMemsetAsync(d_dst, 0, dev_ws_size, stream));
 
       constexpr uint32_t MinBucketCapacityFilter =
           sizeof(VecD_Load) / sizeof(D);
@@ -2309,12 +2311,12 @@ class HashTable : public HashTableBase<K, V, S> {
         auto h_src_offset_sorted = get_vector<1>(mv1, host_temp_storage);
         auto h_values = get_vector<2>(mv1, host_temp_storage);
 
-        CUDA_CHECK(cudaMemcpyAsync(h_dst_sorted, d_dst_sorted, mv1.offset(2),
-                                   cudaMemcpyDeviceToHost, stream));
-        CUDA_CHECK(cudaMemcpyAsync(h_values, values,
+        ROCM_CHECK(hipMemcpyAsync(h_dst_sorted, d_dst_sorted, mv1.offset(2),
+                                   hipMemcpyDeviceToHost, stream));
+        ROCM_CHECK(hipMemcpyAsync(h_values, values,
                                    n * dim() * sizeof(value_type),
-                                   cudaMemcpyDeviceToHost, stream));
-        CUDA_CHECK(cudaStreamSynchronize(stream));
+                                   hipMemcpyDeviceToHost, stream));
+        ROCM_CHECK(hipStreamSynchronize(stream));
 
         write_by_cpu<value_type>(h_dst_sorted, h_values, h_src_offset_sorted,
                                  dim(), n);
@@ -2347,19 +2349,19 @@ class HashTable : public HashTableBase<K, V, S> {
    * @parblock
    * If @p scores is `nullptr`, the score for each key will not be returned.
    * @endparblock
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    *
    */
   void find(const size_type n, const key_type* keys,  // (n)
             value_type* values,                       // (n, DIM)
             bool* founds,                             // (n)
             score_type* scores = nullptr,             // (n)
-            cudaStream_t stream = 0) const {
+            hipStream_t stream = 0) const {
     if (n == 0) {
       return;
     }
 
-    CUDA_CHECK(cudaMemsetAsync(founds, 0, n * sizeof(bool), stream));
+    ROCM_CHECK(hipMemsetAsync(founds, 0, n * sizeof(bool), stream));
 
     std::unique_ptr<read_shared_lock> lock_ptr;
     if (options_.api_lock) {
@@ -2408,7 +2410,7 @@ class HashTable : public HashTableBase<K, V, S> {
       auto d_sort_storage = get_vector<4>(mv, temp_storage);
       sortOp.set_storage(reinterpret_cast<void*>(d_sort_storage));
 
-      CUDA_CHECK(cudaMemsetAsync(src, 0, dev_ws_size, stream));
+      ROCM_CHECK(hipMemsetAsync(src, 0, dev_ws_size, stream));
 
       constexpr uint32_t MinBucketCapacityFilter =
           sizeof(VecD_Load) / sizeof(D);
@@ -2472,7 +2474,7 @@ class HashTable : public HashTableBase<K, V, S> {
    * @parblock
    * If @p scores is `nullptr`, the score for each key will not be returned.
    * @endparblock
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    */
   void find(const size_type n, const key_type* keys,  // (n)
             value_type* values,                       // (n, DIM)
@@ -2480,12 +2482,12 @@ class HashTable : public HashTableBase<K, V, S> {
             int* missed_indices,                      // (n)
             int* missed_size,                         // scalar
             score_type* scores = nullptr,             // (n)
-            cudaStream_t stream = 0) const {
+            hipStream_t stream = 0) const {
     if (n == 0) {
       return;
     }
 
-    CUDA_CHECK(cudaMemsetAsync(missed_size, 0, sizeof(*missed_size), stream));
+    ROCM_CHECK(hipMemsetAsync(missed_size, 0, sizeof(*missed_size), stream));
 
     std::unique_ptr<read_shared_lock> lock_ptr;
     if (options_.api_lock) {
@@ -2535,7 +2537,7 @@ class HashTable : public HashTableBase<K, V, S> {
       auto d_sort_storage = get_vector<4>(mv, temp_storage);
       sortOp.set_storage(reinterpret_cast<void*>(d_sort_storage));
 
-      CUDA_CHECK(cudaMemsetAsync(src, 0, dev_ws_size, stream));
+      ROCM_CHECK(hipMemsetAsync(src, 0, dev_ws_size, stream));
 
       constexpr uint32_t MinBucketCapacityFilter =
           sizeof(VecD_Load) / sizeof(D);
@@ -2599,7 +2601,7 @@ class HashTable : public HashTableBase<K, V, S> {
    * @parblock
    * If @p scores is `nullptr`, the score for each key will not be returned.
    * @endparblock
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    * @param unique_key If all keys in the same batch are unique.
    *
    */
@@ -2607,7 +2609,7 @@ class HashTable : public HashTableBase<K, V, S> {
             value_type** values,                      // (n)
             bool* founds,                             // (n)
             score_type* scores = nullptr,             // (n)
-            cudaStream_t stream = 0, bool unique_key = true) const {
+            hipStream_t stream = 0, bool unique_key = true) const {
     if (n == 0) {
       return;
     }
@@ -2662,7 +2664,7 @@ class HashTable : public HashTableBase<K, V, S> {
    * @parblock
    * If @p scores is `nullptr`, the score for each key will not be returned.
    * @endparblock
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    * @param unique_key If all keys in the same batch are unique.
    *
    */
@@ -2670,7 +2672,7 @@ class HashTable : public HashTableBase<K, V, S> {
                        value_type** values,                      // (n)
                        bool* founds,                             // (n)
                        score_type* scores = nullptr,             // (n)
-                       cudaStream_t stream = 0, bool unique_key = true) {
+                       hipStream_t stream = 0, bool unique_key = true) {
     if (n == 0) {
       return;
     }
@@ -2708,12 +2710,12 @@ class HashTable : public HashTableBase<K, V, S> {
    * @param keys The keys to search on GPU-accessible memory with shape (n).
    * @param founds The result that indicates if the keys are found, and should
    * be allocated by caller on GPU-accessible memory with shape (n).
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    *
    */
   void contains(const size_type n, const key_type* keys,  // (n)
                 bool* founds,                             // (n)
-                cudaStream_t stream = 0) const {
+                hipStream_t stream = 0) const {
     if (n == 0) {
       return;
     }
@@ -2752,10 +2754,10 @@ class HashTable : public HashTableBase<K, V, S> {
    *
    * @param n The number of keys to remove.
    * @param keys The keys to remove on GPU-accessible memory.
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    *
    */
-  void erase(const size_type n, const key_type* keys, cudaStream_t stream = 0) {
+  void erase(const size_type n, const key_type* keys, hipStream_t stream = 0) {
     if (n == 0) {
       return;
     }
@@ -2806,14 +2808,14 @@ class HashTable : public HashTableBase<K, V, S> {
    * type.
    * @param threshold The fourth user-defined argument to @p pred with
    * score_type type.
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    *
    * @return The number of elements removed.
    *
    */
   template <template <typename, typename> class PredFunctor>
   size_type erase_if(const key_type& pattern, const score_type& threshold,
-                     cudaStream_t stream = 0) {
+                     hipStream_t stream = 0) {
     std::unique_ptr<update_read_lock> lock_ptr;
     if (options_.api_lock) {
       lock_ptr = std::make_unique<update_read_lock>(mutex_, stream);
@@ -2822,7 +2824,7 @@ class HashTable : public HashTableBase<K, V, S> {
     auto dev_ws{dev_mem_pool_->get_workspace<1>(sizeof(size_type), stream)};
     auto d_count{dev_ws.get<size_type*>(0)};
 
-    CUDA_CHECK(cudaMemsetAsync(d_count, 0, sizeof(size_type), stream));
+    ROCM_CHECK(hipMemsetAsync(d_count, 0, sizeof(size_type), stream));
 
     {
       const size_t block_size = options_.block_size;
@@ -2837,9 +2839,9 @@ class HashTable : public HashTableBase<K, V, S> {
     }
 
     size_type count = 0;
-    CUDA_CHECK(cudaMemcpyAsync(&count, d_count, sizeof(size_type),
-                               cudaMemcpyDeviceToHost, stream));
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipMemcpyAsync(&count, d_count, sizeof(size_type),
+                               hipMemcpyDeviceToHost, stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
 
     CudaCheckError();
     return count;
@@ -2850,13 +2852,13 @@ class HashTable : public HashTableBase<K, V, S> {
    * @param pred A functor with template <K, V, S> defined an operator with
    * signature:  __device__ (bool*)(const K&, const V*, const S&, const
    * cg::thread_block_tile<GroupSize>&).
-   *  @param stream The CUDA stream that is used to execute the operation.
+   *  @param stream The ROCM stream that is used to execute the operation.
    *
    * @return The number of elements removed.
    */
 
   template <typename PredFunctor>
-  size_type erase_if_v2(PredFunctor& pred, cudaStream_t stream = 0) {
+  size_type erase_if_v2(PredFunctor& pred, hipStream_t stream = 0) {
     std::unique_ptr<update_read_lock> lock_ptr;
     if (options_.api_lock) {
       lock_ptr = std::make_unique<update_read_lock>(mutex_, stream);
@@ -2865,7 +2867,7 @@ class HashTable : public HashTableBase<K, V, S> {
     auto dev_ws{dev_mem_pool_->get_workspace<1>(sizeof(size_type), stream)};
     auto d_count{dev_ws.get<size_type*>(0)};
 
-    CUDA_CHECK(cudaMemsetAsync(d_count, 0, sizeof(size_type), stream));
+    ROCM_CHECK(hipMemsetAsync(d_count, 0, sizeof(size_type), stream));
 
     {
       /// Search_length should be multiple of GroupSize for communication.
@@ -2895,9 +2897,9 @@ class HashTable : public HashTableBase<K, V, S> {
     }
 
     size_type count = 0;
-    CUDA_CHECK(cudaMemcpyAsync(&count, d_count, sizeof(size_type),
-                               cudaMemcpyDeviceToHost, stream));
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipMemcpyAsync(&count, d_count, sizeof(size_type),
+                               hipMemcpyDeviceToHost, stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
 
     CudaCheckError();
     return count;
@@ -2907,7 +2909,7 @@ class HashTable : public HashTableBase<K, V, S> {
    * @brief Removes all of the elements in the hash table with no release
    * object.
    */
-  void clear(cudaStream_t stream = 0) {
+  void clear(hipStream_t stream = 0) {
     std::unique_ptr<update_read_lock> lock_ptr;
     if (options_.api_lock) {
       lock_ptr = std::make_unique<update_read_lock>(mutex_, stream);
@@ -2939,7 +2941,7 @@ class HashTable : public HashTableBase<K, V, S> {
    * If @p scores is `nullptr`, the score for each key will not be returned.
    * @endparblock
    *
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    *
    * @return The number of elements dumped.
    *
@@ -2952,13 +2954,13 @@ class HashTable : public HashTableBase<K, V, S> {
                     key_type* keys,                // (n)
                     value_type* values,            // (n, DIM)
                     score_type* scores = nullptr,  // (n)
-                    cudaStream_t stream = 0) const {
+                    hipStream_t stream = 0) const {
     std::unique_ptr<read_shared_lock> lock_ptr;
     if (options_.api_lock) {
       lock_ptr = std::make_unique<read_shared_lock>(mutex_, stream);
     }
 
-    CUDA_CHECK(cudaMemsetAsync(d_counter, 0, sizeof(size_type), stream));
+    ROCM_CHECK(hipMemsetAsync(d_counter, 0, sizeof(size_type), stream));
     if (offset >= table_->capacity) {
       return;
     }
@@ -2983,17 +2985,17 @@ class HashTable : public HashTableBase<K, V, S> {
                          key_type* keys,                // (n)
                          value_type* values,            // (n, DIM)
                          score_type* scores = nullptr,  // (n)
-                         cudaStream_t stream = 0) const {
+                         hipStream_t stream = 0) const {
     auto dev_ws{dev_mem_pool_->get_workspace<1>(sizeof(size_type), stream)};
     auto d_counter{dev_ws.get<size_type*>(0)};
 
-    CUDA_CHECK(cudaMemsetAsync(d_counter, 0, sizeof(size_type), stream));
+    ROCM_CHECK(hipMemsetAsync(d_counter, 0, sizeof(size_type), stream));
     export_batch(n, offset, d_counter, keys, values, scores, stream);
 
     size_type counter = 0;
-    CUDA_CHECK(cudaMemcpyAsync(&counter, d_counter, sizeof(size_type),
-                               cudaMemcpyDeviceToHost, stream));
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipMemcpyAsync(&counter, d_counter, sizeof(size_type),
+                               hipMemcpyDeviceToHost, stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
     return counter;
   }
 
@@ -3033,7 +3035,7 @@ class HashTable : public HashTableBase<K, V, S> {
    * If @p scores is `nullptr`, the score for each key will not be returned.
    * @endparblock
    *
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    *
    * @return The number of elements dumped.
    *
@@ -3048,12 +3050,12 @@ class HashTable : public HashTableBase<K, V, S> {
                        key_type* keys,                // (n)
                        value_type* values,            // (n, DIM)
                        score_type* scores = nullptr,  // (n)
-                       cudaStream_t stream = 0) const {
+                       hipStream_t stream = 0) const {
     std::unique_ptr<read_shared_lock> lock_ptr;
     if (options_.api_lock) {
       lock_ptr = std::make_unique<read_shared_lock>(mutex_, stream);
     }
-    CUDA_CHECK(cudaMemsetAsync(d_counter, 0, sizeof(size_type), stream));
+    ROCM_CHECK(hipMemsetAsync(d_counter, 0, sizeof(size_type), stream));
 
     if (offset >= table_->capacity) {
       return;
@@ -3148,7 +3150,7 @@ class HashTable : public HashTableBase<K, V, S> {
    * If @p scores is `nullptr`, the score for each key will not be returned.
    * @endparblock
    *
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    *
    * @return void
    *
@@ -3160,12 +3162,12 @@ class HashTable : public HashTableBase<K, V, S> {
                           key_type* keys,                // (n)
                           value_type* values,            // (n, DIM)
                           score_type* scores = nullptr,  // (n)
-                          cudaStream_t stream = 0) const {
+                          hipStream_t stream = 0) const {
     std::unique_ptr<read_shared_lock> lock_ptr;
     if (options_.api_lock) {
       lock_ptr = std::make_unique<read_shared_lock>(mutex_, stream);
     }
-    CUDA_CHECK(cudaMemsetAsync(d_counter, 0, sizeof(size_type), stream));
+    ROCM_CHECK(hipMemsetAsync(d_counter, 0, sizeof(size_type), stream));
 
     if (offset >= table_->capacity) {
       return;
@@ -3213,7 +3215,7 @@ class HashTable : public HashTableBase<K, V, S> {
    * @param f A functor of type `ExecutionFunc` that defines the predicate for
    * filtering tuples. signature:  __device__ (bool*)(const K&, const V*, const
    * S&, const cg::tiled_partition<GroupSize>&).
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    *
    * @return void
    *
@@ -3221,7 +3223,7 @@ class HashTable : public HashTableBase<K, V, S> {
 
   template <typename ExecutionFunc>
   void for_each(const size_type first, const size_type last, ExecutionFunc& f,
-                cudaStream_t stream = 0) {
+                hipStream_t stream = 0) {
     std::unique_ptr<update_read_lock> lock_ptr;
     if (options_.api_lock) {
       lock_ptr = std::make_unique<update_read_lock>(mutex_, stream);
@@ -3261,18 +3263,18 @@ class HashTable : public HashTableBase<K, V, S> {
   /**
    * @brief Indicates if the hash table has no elements.
    *
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    * @return `true` if the table is empty and `false` otherwise.
    */
-  bool empty(cudaStream_t stream = 0) const { return size(stream) == 0; }
+  bool empty(hipStream_t stream = 0) const { return size(stream) == 0; }
 
   /**
    * @brief Returns the hash table size.
    *
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    * @return The table size.
    */
-  size_type size(cudaStream_t stream = 0) const {
+  size_type size(hipStream_t stream = 0) const {
     std::unique_ptr<read_shared_lock> lock_ptr;
     if (options_.api_lock) {
       lock_ptr = std::make_unique<read_shared_lock>(mutex_, stream);
@@ -3293,9 +3295,9 @@ class HashTable : public HashTableBase<K, V, S> {
     sumOp.sum(N, table_->buckets_size, d_total_size, stream);
 
     int64_t h_total_size = 0;
-    CUDA_CHECK(cudaMemcpyAsync(&h_total_size, d_total_size, sizeof(int64_t),
-                               cudaMemcpyDeviceToHost, stream));
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipMemcpyAsync(&h_total_size, d_total_size, sizeof(int64_t),
+                               hipMemcpyDeviceToHost, stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
 
     CudaCheckError();
     return static_cast<size_type>(h_total_size);
@@ -3304,17 +3306,17 @@ class HashTable : public HashTableBase<K, V, S> {
   /**
    * @brief Returns the number of keys if meet PredFunctor.
    *
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    * @return The table size match condiction of PredFunctor.
    */
   template <template <typename, typename> class PredFunctor>
   void size_if(const key_type& pattern, const score_type& threshold,
-               size_type* d_counter, cudaStream_t stream = 0) const {
+               size_type* d_counter, hipStream_t stream = 0) const {
     std::unique_ptr<read_shared_lock> lock_ptr;
     if (options_.api_lock) {
       lock_ptr = std::make_unique<read_shared_lock>(mutex_, stream);
     }
-    CUDA_CHECK(cudaMemsetAsync(d_counter, 0, sizeof(size_type), stream));
+    ROCM_CHECK(hipMemsetAsync(d_counter, 0, sizeof(size_type), stream));
 
     size_t grid_size = SAFE_GET_GRID_SIZE(capacity(), options_.block_size);
     grid_size = std::min(grid_size,
@@ -3349,9 +3351,9 @@ class HashTable : public HashTableBase<K, V, S> {
    * any change to the hash table.
    *
    * @param new_capacity The requested capacity for the hash table.
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    */
-  void reserve(const size_type new_capacity, cudaStream_t stream = 0) {
+  void reserve(const size_type new_capacity, hipStream_t stream = 0) {
     if (reach_max_capacity_ || new_capacity > options_.max_capacity) {
       reach_max_capacity_ = (capacity() * 2 > options_.max_capacity);
       return;
@@ -3365,12 +3367,12 @@ class HashTable : public HashTableBase<K, V, S> {
 
       // Once we have exclusive access, make sure that pending GPU calls have
       // been processed.
-      CUDA_CHECK(cudaDeviceSynchronize());
+      ROCM_CHECK(hipDeviceSynchronize());
 
       while (capacity() < new_capacity &&
              capacity() * 2 <= options_.max_capacity) {
         double_capacity<key_type, value_type, score_type>(&table_, allocator_);
-        CUDA_CHECK(cudaDeviceSynchronize());
+        ROCM_CHECK(hipDeviceSynchronize());
         sync_table_configuration();
 
         const size_t block_size = options_.block_size;
@@ -3381,7 +3383,7 @@ class HashTable : public HashTableBase<K, V, S> {
             <<<grid_size, block_size, 0, stream>>>(d_table_, table_->buckets,
                                                    N);
       }
-      CUDA_CHECK(cudaDeviceSynchronize());
+      ROCM_CHECK(hipDeviceSynchronize());
       reach_max_capacity_ = (capacity() * 2 > options_.max_capacity);
     }
     CudaCheckError();
@@ -3391,11 +3393,11 @@ class HashTable : public HashTableBase<K, V, S> {
    * @brief Returns the average number of elements per slot, that is, size()
    * divided by capacity().
    *
-   * @param stream The CUDA stream that is used to execute the operation.
+   * @param stream The ROCM stream that is used to execute the operation.
    *
    * @return The load factor
    */
-  float load_factor(cudaStream_t stream = 0) const {
+  float load_factor(hipStream_t stream = 0) const {
     return static_cast<float>((size(stream) * 1.0) / (capacity() * 1.0));
   }
 
@@ -3455,13 +3457,13 @@ class HashTable : public HashTableBase<K, V, S> {
    * @param max_workspace_size Saving is conducted in chunks. This value denotes
    * the maximum amount of temporary memory to use when dumping the table.
    * Larger values *can* lead to higher performance.
-   * @param stream The CUDA stream used to execute the operation.
+   * @param stream The ROCM stream used to execute the operation.
    *
    * @return Number of KV pairs saved to file.
    */
   size_type save(BaseKVFile<K, V, S>* file,
                  const size_t max_workspace_size = 1L * 1024 * 1024,
-                 cudaStream_t stream = 0) const {
+                 hipStream_t stream = 0) const {
     const size_type tuple_size{sizeof(key_type) + sizeof(score_type) +
                                sizeof(value_type) * dim()};
     MERLIN_CHECK(max_workspace_size >= tuple_size,
@@ -3501,7 +3503,7 @@ class HashTable : public HashTableBase<K, V, S> {
     size_type total_count{0};
     for (size_type i{0}; i < total_size; i += n) {
       // Dump the next batch to workspace, and then write it to the file.
-      CUDA_CHECK(cudaMemsetAsync(d_count, 0, sizeof(size_type), stream));
+      ROCM_CHECK(hipMemsetAsync(d_count, 0, sizeof(size_type), stream));
 
       dump_kernel<key_type, value_type, score_type>
           <<<grid_size, block_size, shared_size, stream>>>(
@@ -3509,25 +3511,25 @@ class HashTable : public HashTableBase<K, V, S> {
               std::min(total_size - i, n), d_count);
 
       size_type count;
-      CUDA_CHECK(cudaMemcpyAsync(&count, d_count, sizeof(size_type),
-                                 cudaMemcpyDeviceToHost, stream));
-      CUDA_CHECK(cudaStreamSynchronize(stream));
+      ROCM_CHECK(hipMemcpyAsync(&count, d_count, sizeof(size_type),
+                                 hipMemcpyDeviceToHost, stream));
+      ROCM_CHECK(hipStreamSynchronize(stream));
 
       if (count == n) {
-        CUDA_CHECK(cudaMemcpyAsync(h_keys, d_keys, host_ws_size,
-                                   cudaMemcpyDeviceToHost, stream));
+        ROCM_CHECK(hipMemcpyAsync(h_keys, d_keys, host_ws_size,
+                                   hipMemcpyDeviceToHost, stream));
       } else {
-        CUDA_CHECK(cudaMemcpyAsync(h_keys, d_keys, sizeof(key_type) * count,
-                                   cudaMemcpyDeviceToHost, stream));
-        CUDA_CHECK(cudaMemcpyAsync(h_scores, d_scores,
+        ROCM_CHECK(hipMemcpyAsync(h_keys, d_keys, sizeof(key_type) * count,
+                                   hipMemcpyDeviceToHost, stream));
+        ROCM_CHECK(hipMemcpyAsync(h_scores, d_scores,
                                    sizeof(score_type) * count,
-                                   cudaMemcpyDeviceToHost, stream));
-        CUDA_CHECK(cudaMemcpyAsync(h_values, d_values,
+                                   hipMemcpyDeviceToHost, stream));
+        ROCM_CHECK(hipMemcpyAsync(h_values, d_values,
                                    sizeof(value_type) * dim() * count,
-                                   cudaMemcpyDeviceToHost, stream));
+                                   hipMemcpyDeviceToHost, stream));
       }
 
-      CUDA_CHECK(cudaStreamSynchronize(stream));
+      ROCM_CHECK(hipStreamSynchronize(stream));
       file->write(count, dim(), h_keys, h_values, h_scores);
       total_count += count;
     }
@@ -3542,13 +3544,13 @@ class HashTable : public HashTableBase<K, V, S> {
    * @param max_workspace_size Loading is conducted in chunks. This value
    * denotes the maximum size of such chunks. Larger values *can* lead to higher
    * performance.
-   * @param stream The CUDA stream used to execute the operation.
+   * @param stream The ROCM stream used to execute the operation.
    *
    * @return Number of keys loaded from file.
    */
   size_type load(BaseKVFile<K, V, S>* file,
                  const size_t max_workspace_size = 1L * 1024 * 1024,
-                 cudaStream_t stream = 0) {
+                 hipStream_t stream = 0) {
     const size_type tuple_size{sizeof(key_type) + sizeof(score_type) +
                                sizeof(value_type) * dim()};
     MERLIN_CHECK(max_workspace_size >= tuple_size,
@@ -3579,17 +3581,17 @@ class HashTable : public HashTableBase<K, V, S> {
     size_type total_count{0};
     do {
       if (count == n) {
-        CUDA_CHECK(cudaMemcpyAsync(d_keys, h_keys, ws_size,
-                                   cudaMemcpyHostToDevice, stream));
+        ROCM_CHECK(hipMemcpyAsync(d_keys, h_keys, ws_size,
+                                   hipMemcpyHostToDevice, stream));
       } else {
-        CUDA_CHECK(cudaMemcpyAsync(d_keys, h_keys, sizeof(key_type) * count,
-                                   cudaMemcpyHostToDevice, stream));
-        CUDA_CHECK(cudaMemcpyAsync(d_scores, h_scores,
+        ROCM_CHECK(hipMemcpyAsync(d_keys, h_keys, sizeof(key_type) * count,
+                                   hipMemcpyHostToDevice, stream));
+        ROCM_CHECK(hipMemcpyAsync(d_scores, h_scores,
                                    sizeof(score_type) * count,
-                                   cudaMemcpyHostToDevice, stream));
-        CUDA_CHECK(cudaMemcpyAsync(d_values, h_values,
+                                   hipMemcpyHostToDevice, stream));
+        ROCM_CHECK(hipMemcpyAsync(d_values, h_values,
                                    sizeof(value_type) * dim() * count,
-                                   cudaMemcpyHostToDevice, stream));
+                                   hipMemcpyHostToDevice, stream));
       }
 
       set_global_epoch(static_cast<S>(IGNORED_GLOBAL_EPOCH));
@@ -3597,7 +3599,7 @@ class HashTable : public HashTableBase<K, V, S> {
       total_count += count;
 
       // Read next batch.
-      CUDA_CHECK(cudaStreamSynchronize(stream));
+      ROCM_CHECK(hipStreamSynchronize(stream));
       count = file->read(n, dim(), h_keys, h_values, h_scores);
     } while (count > 0);
 
@@ -3631,13 +3633,13 @@ class HashTable : public HashTableBase<K, V, S> {
    * capacity control. But it's not suitable for end-users.
    *
    * @param delta A hypothetical upcoming change on table size.
-   * @param stream The CUDA stream used to execute the operation.
+   * @param stream The ROCM stream used to execute the operation.
    * @param need_lock If lock is needed.
    *
    * @return The evaluated load factor
    */
   inline float fast_load_factor(const size_type delta = 0,
-                                cudaStream_t stream = 0,
+                                hipStream_t stream = 0,
                                 const bool need_lock = true) const {
     std::unique_ptr<read_shared_lock> lock_ptr;
     if (options_.api_lock) {
@@ -3663,9 +3665,9 @@ class HashTable : public HashTableBase<K, V, S> {
     sumOp.sum(N, table_->buckets_size, d_total_size, stream);
 
     int64_t h_total_size = 0;
-    CUDA_CHECK(cudaMemcpyAsync(&h_total_size, d_total_size, sizeof(int64_t),
-                               cudaMemcpyDeviceToHost, stream));
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+    ROCM_CHECK(hipMemcpyAsync(&h_total_size, d_total_size, sizeof(int64_t),
+                               hipMemcpyDeviceToHost, stream));
+    ROCM_CHECK(hipStreamSynchronize(stream));
     CudaCheckError();
     return static_cast<float>((delta * 1.0) / (capacity() * 1.0) +
                               (h_total_size * 1.0) /
@@ -3710,8 +3712,8 @@ class HashTable : public HashTableBase<K, V, S> {
    * its replicas in constant memory and device memory when it's changed.
    */
   inline void sync_table_configuration() {
-    CUDA_CHECK(
-        cudaMemcpy(d_table_, table_, sizeof(TableCore), cudaMemcpyDefault));
+    ROCM_CHECK(
+        hipMemcpy(d_table_, table_, sizeof(TableCore), hipMemcpyDefault));
   }
 
  private:
