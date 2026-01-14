@@ -67,6 +67,38 @@ def hipify(hipify_perl_path, src_file_path, dst_file_path):
     s = s.replace("WaitCudaNotificationOnDevice", "WaitRocmNotificationOnDevice")
     s = s.replace("hipHostAlloc", "hipHostMalloc")
     s = s.replace(
+        "#include <cuda/atomic>",
+        "#include <hip/atomic>",
+    )
+    s = s.replace(
+        "cuda::atomic",
+        "hip::atomic",
+    )
+    s = s.replace(
+        "cuda::thread_scope",
+        "hip::thread_scope",
+    )
+    s = s.replace(
+        "cuda::thread_scope_device",
+        "hip::thread_scope_device",
+    )
+    s = s.replace(
+        "cuda::std::memory_order_relaxed",
+        "hip::std::memory_order_relaxed",
+    )
+    s = s.replace(
+        "cuda::std::memory_order_acquire",
+        "hip::std::memory_order_acquire",
+    )
+    s = s.replace(
+        "cuda::std::memory_order_release",
+        "hip::std::memory_order_release",
+    )
+    s = s.replace(
+        "#include <cuda/std/semaphore>",
+        "//#include <cuda/std/semaphore>",
+    )
+    s = s.replace(
         "#include <cub/device/device_radix_sort.cuh>",
         "#include <hipcub/hipcub.hpp>\n#include <hipcub/backend/rocprim/device/device_radix_sort.hpp>",
     )
